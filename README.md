@@ -63,8 +63,11 @@ cd driver-drowsiness-system
 ```bash
 python -m venv venv
 
-# Windows
-venv\Scripts\activate
+# Windows (PowerShell)
+.\venv\Scripts\Activate.ps1
+
+# Windows (CMD)
+venv\Scripts\activate.bat
 
 # macOS/Linux
 source venv/bin/activate
@@ -75,35 +78,77 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Cấu hình Database
-
-#### Tạo database MySQL:
-```bash
-mysql -u root -p < database.sql
-```
-
-#### Hoặc chạy trong MySQL Workbench:
-```sql
-SOURCE /path/to/database.sql;
-```
-
-### 5. Cấu hình môi trường
-```bash
-# Copy file .env.example thành .env
-cp .env.example .env
-
-# Chỉnh sửa thông tin database
+### 4. Tạo file cấu hình .env
+Tạo file `.env` trong thư mục gốc với nội dung:
+```env
 DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=drowsiness_db
 DB_USER=root
 DB_PASSWORD=your_password
 ```
+> ⚠️ Thay `your_password` bằng mật khẩu MySQL của bạn
+
+### 5. Cấu hình Database MySQL
+
+#### Cách 1: Dùng Command Line
+```bash
+# Tạo database
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS drowsiness_db;"
+
+# Import schema và dữ liệu
+mysql -u root -p drowsiness_db < database.sql
+```
+
+#### Cách 2: Dùng MySQL Workbench
+```sql
+CREATE DATABASE IF NOT EXISTS drowsiness_db;
+USE drowsiness_db;
+SOURCE /path/to/database.sql;
+```
 
 ### 6. Chạy ứng dụng
 ```bash
 python main.py
 ```
+
+### 7. Đăng nhập test
+```
+Username: admin
+Password: admin123
+```
+
+---
+
+## 🔧 Troubleshooting
+
+### Lỗi MediaPipe trên Python 3.13+
+```bash
+pip uninstall mediapipe
+pip install mediapipe==0.10.9
+```
+
+### Lỗi MySQL Access Denied
+- Kiểm tra lại password trong file `.env`
+- Đảm bảo MySQL Server đang chạy
+- Thử kết nối thủ công: `mysql -u root -p`
+
+### Lỗi bcrypt
+```bash
+pip install bcrypt --force-reinstall
+```
+
+### Reset mật khẩu admin
+```bash
+python reset_password.py
+```
+
+### Lỗi Camera không mở được
+- Kiểm tra webcam đã kết nối chưa
+- Đóng các ứng dụng khác đang dùng camera
+- Thử đổi camera index trong Settings
+
+---
 
 ## ⚙️ Cấu hình
 
