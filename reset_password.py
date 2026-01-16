@@ -1,38 +1,41 @@
-"""Script to reset admin password"""
+"""Script to reset admin password safely.
+
+This script uses the project's `config` and database helper to update the
+admin password. It also uses the same hashing routine from `UserModel` to
+ensure compatibility.
+"""
 import sys
 sys.path.insert(0, '.')
 
-import bcrypt
-import mysql.connector
+from config import config
+from src.models.user_model import UserModel
+from src.database.db_connection import execute_query
 
-# Generate new hash
-password = 'admin123'
-salt = bcrypt.gensalt()
-hashed = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+def reset_admin_password(new_password: str = 'admin123') -> None:
+    # Hash using the project's UserModel method
+    hashed = UserModel.hash_password(new_password)
 
-print(f"New hash: {hashed}")
+    print(f"Updating admin password (hashed): {hashed}")
 
-# Update database
-conn = mysql.connector.connect(
-    host='localhost',
-    user='root',
-    password='123456',
-    database='drowsiness_db'
-)
+    # Update using execute_query helper
+    update_q = "UPDATE users SET password = %s WHERE username = 'admin'"
+    res = execute_query(update_q, (hashed,))
 
-cursor = conn.cursor()
-cursor.execute("UPDATE users SET password = %s WHERE username = 'admin'", (hashed,))
-conn.commit()
+    print(f"Update result: {res}")
 
-print(f"Updated {cursor.rowcount} row(s)")
+    # Verify
+    select_q = "SELECT password FROM users WHERE username = %s"
+    rows = execute_query(select_q, ('admin',), fetch=True)
+    if not rows:
+        print("Admin user not found or DB error.")
+        return
 
-# Verify
-cursor.execute("SELECT password FROM users WHERE username = 'admin'")
-result = cursor.fetchone()
-stored_hash = result[0]
+    stored_hash = rows[0].get('password')
+    print(f"Stored hash: {stored_hash}")
+    ok = UserModel.verify_password(new_password, stored_hash)
+    print(f"Verify: {ok}")
 
-print(f"Stored hash: {stored_hash}")
-print(f"Verify: {bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8'))}")
 
-cursor.close()
-conn.close()
+if __name__ == '__main__':
+    # You can change the password here or pass via environment in future
+    reset_admin_password('admin123')

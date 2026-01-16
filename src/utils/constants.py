@@ -119,9 +119,9 @@ class Thresholds:
     EAR_CONSEC_FRAMES = 20      # Số frame liên tiếp
     
     # MAR (Mouth Aspect Ratio)
-    MAR_YAWN = 0.70             # Ngưỡng ngáp
+    MAR_YAWN = 0.65             # Ngưỡng ngáp
     MAR_NORMAL = 0.50
-    
+    MOUTH_RATIO_SMILE = 1.5   # Tỷ lệ miệng để nhận diện cười
     # Head Pose
     HEAD_PITCH = 20.0           # Góc cúi đầu (Default)
     HEAD_YAW = 30.0             # Góc quay đầu (Default)
@@ -134,25 +134,26 @@ class Messages:
     """UI message constants"""
     
     # Status messages
-    STATUS_NORMAL = "Trạng thái: Bình thường ✓"
-    STATUS_WARNING = "⚠️ CẢNH BÁO: Có dấu hiệu buồn ngủ!"
-    STATUS_DANGER = "🚨 NGUY HIỂM: Đang ngủ gật!"
-    STATUS_CRITICAL = "🔴 KHẨN CẤP: Dừng xe ngay!"
+    STATUS_NORMAL = "Trạng thái: Bình thường"
+    STATUS_WARNING = "CẢNH BÁO: Phát hiện dấu hiệu buồn ngủ hoặc thiếu tập trung"
+    STATUS_DANGER = "NGUY HIỂM: Nguy cơ ngủ gật"
+    STATUS_CRITICAL = "KHẨN CẤP: Dừng xe ngay"
+    STATUS_YAWN = "NGÁP: Có dấu hiệu mệt mỏi - hãy nghỉ ngơi"
     
     # Alert messages
-    ALERT_EYES_CLOSED = "Mắt nhắm quá lâu!"
-    ALERT_YAWNING = "Bạn đang ngáp - Nghỉ ngơi nếu mệt!"
-    ALERT_HEAD_DOWN = "Đầu cúi xuống - Tập trung lái xe!"
+    ALERT_EYES_CLOSED = "Mắt nhắm quá lâu - có nguy cơ ngủ gật"
+    ALERT_YAWNING = "Ngáp nhiều - có dấu hiệu mệt mỏi"
+    ALERT_HEAD_DOWN = "Đầu cúi xuống - hãy tập trung lái xe"
     
     # Login/Register
-    LOGIN_SUCCESS = "Đăng nhập thành công!"
-    LOGIN_FAILED = "Sai tên đăng nhập hoặc mật khẩu!"
-    REGISTER_SUCCESS = "Đăng ký thành công! Vui lòng đăng nhập."
-    REGISTER_FAILED = "Đăng ký thất bại."
+    LOGIN_SUCCESS = "Đăng nhập thành công"
+    LOGIN_FAILED = "Sai tên đăng nhập hoặc mật khẩu"
+    REGISTER_SUCCESS = "Đăng ký thành công - vui lòng đăng nhập"
+    REGISTER_FAILED = "Đăng ký thất bại"
     
     # Errors
-    DB_CONNECTION_ERROR = "Lỗi kết nối cơ sở dữ liệu!"
-    CAMERA_NOT_FOUND = "Không tìm thấy Camera!"
+    DB_CONNECTION_ERROR = "Lỗi kết nối cơ sở dữ liệu"
+    CAMERA_NOT_FOUND = "Không tìm thấy camera"
 
 
 # ============================================
@@ -160,7 +161,7 @@ class Messages:
 # ============================================
 class UIConstants:
     """UI dimension and styling constants"""
-    WINDOW_TITLE = "Driver Drowsiness Detection System"
+    WINDOW_TITLE = "Hệ thống phát hiện buồn ngủ khi lái xe"
     WINDOW_WIDTH = 1280
     WINDOW_HEIGHT = 720
     SIDEBAR_WIDTH = 250

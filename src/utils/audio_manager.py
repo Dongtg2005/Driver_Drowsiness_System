@@ -108,6 +108,14 @@ class AudioManager:
                 target=lambda: winsound.Beep(1000, 200),
                 daemon=True
             ).start()
+
+    def play_alarm(self, loop: bool = False) -> None:
+        """Play medium-level alarm (mapped to level 2)."""
+        self.play_alert(2, loop=loop)
+
+    def play_siren(self, loop: bool = True) -> None:
+        """Play critical siren (mapped to level 3). Default is looping."""
+        self.play_alert(3, loop=loop)
     
     def stop(self) -> None:
         """Stop all sounds"""

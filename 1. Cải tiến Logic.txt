@@ -1,0 +1,100 @@
+1. Cải tiến Logic từng phần (Tránh báo ảo)
+👁️ Phần Mắt (EAR - Eye Aspect Ratio)
+Vấn đề hiện tại: Đôi khi bạn chớp mắt bình thường (Blinking) hệ thống cũng đếm là 1 frame nhắm. Hoặc khi cười, mắt híp lại, EAR giảm -> Báo sai.
+
+Cải tiến cần thiết:
+
+Phân biệt Chớp mắt vs. Buồn ngủ: Chớp mắt diễn ra rất nhanh (< 0.2 giây). Buồn ngủ (Microsleep) thường kéo dài > 0.5 - 1 giây.
+
+Giải pháp: Thay vì chỉ đếm frame liên tiếp, hãy áp dụng tiêu chuẩn PERCLOS (Percentage of Eyelid Closure) - Tiêu chuẩn vàng trong công nghiệp ô tô.
+
+Logic: Tính % thời gian mắt nhắm trong một cửa sổ thời gian (ví dụ: trong 60 giây qua, mắt nhắm bao nhiêu %). Nếu > 20% -> Cảnh báo.
+
+Xử lý khi cười: Khi cười, miệng (MAR) sẽ tăng theo chiều ngang, mắt (EAR) giảm. Nếu EAR thấp VÀ MAR ngang tăng -> Đang cười, không báo động.
+
+👄 Phần Miệng (MAR - Mouth Aspect Ratio)
+Vấn đề hiện tại: Khi nói chuyện hoặc hát, miệng cũng mở to -> Hệ thống tưởng nhầm là ngáp.
+
+Cải tiến cần thiết:
+
+Kiểm tra tốc độ mở miệng:
+
+Nói chuyện: Miệng mở/đóng rất nhanh liên tục.
+
+Ngáp: Miệng mở từ từ -> Giữ nguyên độ rộng (đỉnh điểm) -> Đóng từ từ. Một cú ngáp thường kéo dài 3-5 giây.
+
+Giải pháp: Chỉ tính là ngáp khi MAR > ngưỡng trong ít nhất 20-30 frames liên tiếp (khoảng 1-1.5 giây giữ nguyên trạng thái mở to).
+
+👤 Phần Đầu (Head Pose)
+Vấn đề hiện tại: Khi tài xế nhìn gương chiếu hậu (quay trái/phải) hoặc nhìn bảng điều khiển (cúi nhẹ), hệ thống báo mất tập trung.
+
+Cải tiến cần thiết:
+
+Độ trễ (Time Delay): Chỉ cảnh báo khi tư thế đầu bất thường giữ nguyên quá 2-3 giây. Việc nhìn gương chỉ mất khoảng 1 giây.
+
+Vùng an toàn (Safe Zone): Cần định nghĩa lại ngưỡng. Ví dụ: Quay trái nhìn gương (Yaw -20 độ) là bình thường, nhưng quay ra sau nói chuyện (Yaw -45 độ) là cảnh báo.
+
+2. Tích hợp Đa phương thức (Sensor Fusion) - Quan trọng nhất
+Thay vì 3 ông (Mắt, Miệng, Đầu) hoạt động riêng lẻ, hãy tạo ra một biến gọi là "Drowsiness Score" (Điểm buồn ngủ).
+
+Tại sao cần làm vậy? Vì đôi khi mắt bạn chưa nhắm hẳn (EAR vẫn > 0.25), nhưng bạn vừa ngáp 2 cái và đầu hơi gật gù -> Đó là dấu hiệu cực nguy hiểm sắp ngủ gật.
+
+Quy trình đề xuất:
+
+Tạo biến score = 0.
+
+Mỗi frame:
+
+Nếu Mắt nhắm: score += 1
+
+Nếu Ngáp: score += 3 (Ngáp là dấu hiệu mệt mỏi rõ ràng)
+
+Nếu Gật đầu: score += 2
+
+Nếu Bình thường: score -= 1 (Giảm dần điểm khi tỉnh táo, nhưng không nhỏ hơn 0).
+
+Ngưỡng cảnh báo:
+
+Nếu score > 15: Cảnh báo nhẹ (Beep).
+
+Nếu score > 30: Cảnh báo mạnh (Alarm).
+
+Lợi ích: Cơ chế này giúp hệ thống "nhớ" trạng thái mệt mỏi. Nếu bạn vừa ngáp xong, điểm số đang cao, chỉ cần mắt lim dim nhẹ là hệ thống cảnh báo ngay lập tức, an toàn hơn nhiều so với việc chờ mắt nhắm hẳn.
+
+3. Các tính năng "Sát thủ" nên bổ sung thêm
+Để dự án nổi bật hẳn so với các đồ án sinh viên khác, bạn hãy thêm:
+
+A. Chế độ Ban đêm / Ánh sáng yếu (Night Mode Enhancement)
+Thực tế: Tài xế hay buồn ngủ nhất vào ban đêm, nhưng Camera thường lại kém khi thiếu sáng.
+
+Cải tiến:
+
+Sử dụng thuật toán Gamma Correction hoặc Histogram Equalization của OpenCV để làm sáng ảnh đầu vào trước khi đưa vào MediaPipe.
+
+Code snippet gợi ý:
+
+Python
+
+# Tăng sáng ảnh trong điều kiện tối
+def enhance_image(frame):
+    # Chuyển sang YUV
+    img_yuv = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
+    # Cân bằng sáng kênh Y
+    img_yuv[:,:,0] = cv2.equalizeHist(img_yuv[:,:,0])
+    # Chuyển lại BGR
+    return cv2.cvtColor(img_yuv, cv2.COLOR_YUV2BGR)
+B. Phát hiện Kính râm (Sunglasses Detection)
+Thực tế: Tài xế thường đeo kính râm. MediaPipe có thể bắt sai điểm mắt.
+
+Cải tiến:
+
+Nếu hệ thống phát hiện EAR liên tục = 0 hoặc nhảy loạn xạ trong thời gian dài -> Suy luận là có vật cản (kính râm).
+
+Khi đó: Tự động chuyển trọng số sang theo dõi Đầu và Miệng, bỏ qua Mắt hoặc giảm độ tin cậy của Mắt xuống. Thông báo lên màn hình: "Phát hiện kính râm - Chuyển chế độ giám sát hành vi".
+
+C. Lời khuyên thông minh (Smart Recommendations)
+Thay vì chỉ hú còi Bíp Bíp, hãy phát ra giọng nói (Text-to-Speech):
+
+"Bạn đã ngáp 3 lần trong 5 phút, hãy dừng xe nghỉ ngơi!"
+
+"Phát hiện dấu hiệu mệt mỏi, trạm dừng chân tiếp theo cách 5km." (Tính năng giả lập cao cấp).

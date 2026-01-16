@@ -43,7 +43,7 @@ class Config:
     DB_PORT = int(os.getenv("DB_PORT", 3306))
     DB_NAME = os.getenv("DB_NAME", "drowsiness_db")
     DB_USER = os.getenv("DB_USER", "root")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "") 
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "12345") 
 
     # ----------------------------------
     # 4. AUDIO & ALERTS (Phần bạn đang thiếu)

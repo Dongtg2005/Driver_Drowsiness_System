@@ -53,23 +53,56 @@ Hệ thống phát hiện lái xe ngủ gật sử dụng Computer Vision và AI
 
 ## 🚀 Cài đặt
 
-### 1. Clone repository
-```bash
-git clone https://github.com/yourusername/driver-drowsiness-system.git
-cd driver-drowsiness-system
+> Khuyến nghị dùng **Python 3.9 – 3.11** để tương thích tốt với `mediapipe`.
+
+### 0. Kiểm tra Python & pip
+
+**Windows (khuyến nghị PowerShell):**
+```powershell
+python --version
+python -m pip --version
 ```
 
-### 2. Tạo môi trường ảo
+Nếu máy bạn có nhiều phiên bản Python, có thể dùng `py`:
+```powershell
+py --list
+py -3.11 --version
+```
+
+### 1. Clone repository
 ```bash
+git clone https://github.com/yourusername/driver-drowsiness-system.git Driver_Drowsiness_System
+cd Driver_Drowsiness_System
+```
+
+### 2. Tạo môi trường ảo (venv)
+
+**Windows (PowerShell):**
+```powershell
+# Tạo venv
 python -m venv venv
 
-# Windows (PowerShell)
+# (Khuyến nghị) nâng pip / setuptools / wheel
+python -m pip install --upgrade pip setuptools wheel
+
+# Nếu bị chặn chạy script: chỉ bật tạm trong phiên hiện tại
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# Kích hoạt venv
 .\venv\Scripts\Activate.ps1
+```
 
-# Windows (CMD)
+**Windows (CMD):**
+```bat
+python -m venv venv
+python -m pip install --upgrade pip setuptools wheel
 venv\Scripts\activate.bat
+```
 
-# macOS/Linux
+**macOS/Linux:**
+```bash
+python3 -m venv venv
+python3 -m pip install --upgrade pip setuptools wheel
 source venv/bin/activate
 ```
 
@@ -85,11 +118,13 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=drowsiness_db
 DB_USER=root
-DB_PASSWORD=your_password
+DB_PASSWORD=
 ```
-> ⚠️ Thay `your_password` bằng mật khẩu MySQL của bạn
+> Nếu MySQL của bạn có đặt mật khẩu cho user `root`, hãy điền vào `DB_PASSWORD`.
 
 ### 5. Cấu hình Database MySQL
+
+> Bạn có thể dùng **MySQL Server** hoặc **XAMPP (MySQL/MariaDB)**. Mặc định cấu hình trong [config.py](config.py) dùng `DB_USER=root` và `DB_PASSWORD` rỗng.
 
 #### Cách 1: Dùng Command Line
 ```bash
@@ -107,9 +142,16 @@ USE drowsiness_db;
 SOURCE /path/to/database.sql;
 ```
 
+> **Windows lưu ý:** nếu dùng Workbench, hãy chọn đúng file `database.sql` trong thư mục dự án.
+
 ### 6. Chạy ứng dụng
 ```bash
 python main.py
+```
+
+### 7. Thoát môi trường ảo
+```bash
+deactivate
 ```
 
 ### 7. Đăng nhập test
@@ -195,7 +237,7 @@ ALERT_VOLUME = 0.8
 ## 🏗️ Kiến trúc
 
 ```
-driver-drowsiness-system/
+Driver_Drowsiness_System/
 ├── main.py                 # Entry point
 ├── config.py               # Cấu hình
 ├── src/

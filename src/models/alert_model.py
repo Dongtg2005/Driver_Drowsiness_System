@@ -28,7 +28,8 @@ class AlertModel:
                   alert_level: Union[AlertLevel, int], ear_value: float = 0.0,
                   mar_value: float = 0.0, head_pitch: float = 0.0,
                   head_yaw: float = 0.0, duration: float = 0.0,
-                  screenshot_path: str = None) -> Optional[int]:
+                  screenshot_path: str = None, perclos: float = 0.0,
+                  session_id: Optional[int] = None, **kwargs) -> Optional[int]:
         """
         Ghi log cảnh báo mới vào database.
         Hàm này hỗ trợ nhận cả Enum hoặc giá trị nguyên thủy (str/int).
@@ -46,7 +47,8 @@ class AlertModel:
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         """
         
-        # 3. Tham số
+        # 3. Tham số (lưu các trường chính; `perclos` được chấp nhận nhưng không
+        #    được lưu vào bảng mặc định nếu schema không chứa cột tương ứng).
         params = (
             user_id,
             type_val,       # Ví dụ: 'DROWSY'

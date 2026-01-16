@@ -27,6 +27,7 @@ from src.views.register_view import RegisterView
 from src.views.camera_view import CameraView
 from src.views.dashboard_view import DashboardView
 from src.views.settings_view import SettingsView
+from src.views.calibration_view import CalibrationView
 from src.views.components import Colors, MessageBox
 
 class DriverDrowsinessApp:
@@ -48,6 +49,15 @@ class DriverDrowsinessApp:
         self.root.title("🚗 Driver Drowsiness Detection System")
         self.root.geometry(f"{config.WINDOW_WIDTH}x{config.WINDOW_HEIGHT}")
         self.root.minsize(1024, 768)
+        # Ensure a Unicode font that supports Vietnamese is used
+        try:
+            # Prefer Segoe UI on Windows, fallback to Arial
+            self.root.option_add("*Font", ("Segoe UI", 12))
+        except Exception:
+            try:
+                self.root.option_add("*Font", ("Arial", 12))
+            except Exception:
+                pass
         
         # Set window icon (if available)
         try:
@@ -156,8 +166,30 @@ class DriverDrowsinessApp:
         """Handle successful login"""
         self.current_user = user_data
         app_logger.info(f"User logged in: {user_data.get('username')}")
-        
-        # Show camera view
+        # After login, require calibration before starting monitoring
+        self._show_calibration()
+
+    def _show_calibration(self):
+        """Show calibration view before allowing monitoring/dashboard."""
+        self._clear_view()
+
+        user_id = None
+        try:
+            user_id = int(self.current_user.get('id'))
+        except Exception:
+            user_id = 1
+
+        self.current_view = CalibrationView(
+            self.root,
+            on_finish=self._after_calibration,
+            user_id=user_id
+        )
+        self.current_view.pack(fill="both", expand=True)
+        app_logger.info("Showing calibration view")
+
+    def _after_calibration(self):
+        """Called after calibration completes — proceed to camera view."""
+        app_logger.info("Calibration finished; entering camera view")
         self._show_camera()
     
     def _on_register_success(self): 

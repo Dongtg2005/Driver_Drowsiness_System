@@ -66,7 +66,8 @@ class Logger:
         
         # Console handler
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
+        # Show debug logs on console when in DEBUG mode
+        console_handler.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
         console_handler.setFormatter(console_formatter)
         
         # Add handlers to logger
@@ -108,7 +109,7 @@ class Logger:
             self._logger.exception(message)
     
     def log_alert(self, alert_type: str, level: int, ear: float = None, 
-                  mar: float = None, pitch: float = None) -> None:
+                  mar: float = None, pitch: float = None, perclos: float = None) -> None:
         """
         Log drowsiness alert with details.
         
@@ -126,6 +127,8 @@ class Logger:
             details += f", MAR={mar:.3f}"
         if pitch is not None:
             details += f", Pitch={pitch:.1f}°"
+        if perclos is not None:
+            details += f", PERCLOS={perclos:.3f}"
         
         self._logger.warning(f"🚨 ALERT: {details}")
     

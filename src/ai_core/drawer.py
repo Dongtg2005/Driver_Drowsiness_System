@@ -82,22 +82,44 @@ class FrameDrawer:
                    color: Tuple[int, int, int] = Colors.YELLOW,
                    yawning: bool = False) -> np.ndarray:
         """
-        Vẽ viền miệng. Đổi màu vàng nếu đang ngáp.
+        Vẽ khung chữ nhật bao quanh miệng (Thay cho hình thoi cũ).
         """
         draw_color = Colors.YELLOW if yawning else Colors.GREEN
         
-        # Get key mouth points for drawing a simple polygon
-        mouth_indices = [
-            mp_config.MOUTH_TOP,
-            mp_config.MOUTH_RIGHT,
-            mp_config.MOUTH_BOTTOM,
-            mp_config.MOUTH_LEFT
-        ]
-        
-        mouth_points = [face.pixel_landmarks[i] for i in mouth_indices]
-        mouth_array = np.array(mouth_points, dtype=np.int32)
-        
-        cv2.polylines(image, [mouth_array], True, draw_color, 1)
+        # Lấy 4 điểm cực trị của miệng
+        try:
+            indices = [
+                mp_config.MOUTH_LEFT, 
+                mp_config.MOUTH_RIGHT, 
+                mp_config.MOUTH_TOP, 
+                mp_config.MOUTH_BOTTOM
+            ]
+            
+            points = []
+            for idx in indices:
+                points.append(face.pixel_landmarks[idx])
+                
+            if not points: 
+                return image
+
+            # Chuyển sang numpy để tính toán nhanh
+            points_np = np.array(points, dtype=np.int32)
+            
+            # Tính toán hình chữ nhật bao quanh (Bounding Rect)
+            # x, y là góc trái trên; w, h là chiều rộng, cao
+            x, y, w, h = cv2.boundingRect(points_np)
+            
+            # Thêm khoảng đệm (padding) để khung không dính sát môi
+            padding = 5
+            
+            # Vẽ hình chữ nhật
+            cv2.rectangle(image, 
+                          (x - padding, y - padding), 
+                          (x + w + padding, y + h + padding), 
+                          draw_color, 2) # Độ dày nét = 2
+                          
+        except Exception:
+            pass # Bỏ qua nếu lỗi tính toán
         
         return image
     
@@ -133,7 +155,9 @@ class FrameDrawer:
     
     def draw_status_panel(self, image: np.ndarray, ear: float, mar: float,
                           pitch: float, yaw: float, fps: float,
-                          alert_level: AlertLevel = AlertLevel.NONE) -> np.ndarray:
+                          alert_level: AlertLevel = AlertLevel.NONE,
+                          perclos: float = 0.0,  # ← THÊM
+                          eye_state: str = "OPEN") -> np.ndarray:  # ← THÊM
         """
         Vẽ bảng thông số kỹ thuật (HUD) bên góc trái.
         """
@@ -154,7 +178,21 @@ class FrameDrawer:
         # --- EAR (Mắt) ---
         ear_color = Colors.RED if ear < config.EAR_THRESHOLD else Colors.GREEN
         cv2.putText(image, f"EAR: {ear:.2f}", (x_text, y_offset),
-                    self.font, 0.65, ear_color, 2)
+                self.font, 0.65, ear_color, 2)
+
+        # --- PERCLOS (THÊM MỚI) ---
+        y_offset += line_height
+        perclos_percent = perclos * 100
+        perclos_color = Colors.RED if perclos > 0.20 else Colors.GREEN
+        cv2.putText(image, f"PERCLOS: {perclos_percent:.1f}%", (x_text, y_offset),
+                self.font, 0.65, perclos_color, 2)
+
+        # --- Eye State (THÊM MỚI) ---
+        y_offset += line_height
+        state_text = eye_state.replace("_", " ") if isinstance(eye_state, str) else str(eye_state)
+        state_color = Colors.GREEN if state_text.upper() == "OPEN" else Colors.YELLOW
+        cv2.putText(image, f"Eye: {state_text}", (x_text, y_offset),
+                self.font, 0.55, state_color, 1)
         
         # --- MAR (Miệng) ---
         y_offset += line_height
@@ -236,6 +274,112 @@ class FrameDrawer:
         
         cv2.putText(image, msg, (text_x, text_y),
                     self.font, 1.0, Colors.WHITE, 2)
+        return image
+
+    def draw_detected_outlines(self, image: np.ndarray, face: FaceLandmarks) -> np.ndarray:
+        """Draw green outlines around detected eyes, mouth and face bounding box.
+
+        This is a convenience helper that forces green color to indicate 'recognized'.
+        """
+        if not face:
+            return image
+
+        # Draw eyes with green outline
+        try:
+            image = self.draw_eyes(image, face, color=Colors.GREEN, closed=False)
+        except Exception:
+            pass
+
+        # Draw mouth with green outline
+        try:
+            image = self.draw_mouth(image, face, color=Colors.GREEN, yawning=False)
+        except Exception:
+            pass
+
+        # Draw face bounding box in green
+        try:
+            image = self.draw_bounding_box(image, face, color=Colors.GREEN)
+        except Exception:
+            pass
+
+        return image
+
+    def draw_roi_boxes(self, image: np.ndarray, face_landmarks, alert_type: str = "NORMAL") -> np.ndarray:
+        """Vẽ khung vùng quan tâm (mắt trái/phải, miệng).
+
+        Hỗ trợ nhiều định dạng face_landmarks:
+        - Our `FaceLandmarks` NamedTuple with `pixel_landmarks`
+        - MediaPipe legacy object with `.landmark` having `.x`/`.y`
+        - A simple container with `landmarks` as normalized tuples (x,y,...)
+        """
+        if not face_landmarks:
+            return image
+
+        h, w = image.shape[:2]
+
+        # Convert to pixel coords list [(x,y), ...]
+        pixel_points = None
+        if hasattr(face_landmarks, 'pixel_landmarks') and face_landmarks.pixel_landmarks:
+            pixel_points = [(int(p[0]), int(p[1])) for p in face_landmarks.pixel_landmarks]
+        elif hasattr(face_landmarks, 'landmark') and face_landmarks.landmark:
+            # MediaPipe legacy Landmark objects
+            try:
+                pixel_points = [(int(lm.x * w), int(lm.y * h)) for lm in face_landmarks.landmark]
+            except Exception:
+                pixel_points = None
+        elif hasattr(face_landmarks, 'landmarks') and face_landmarks.landmarks:
+            # Normalized tuple list [(x,y,z), ...]
+            try:
+                pixel_points = [(int(p[0] * w), int(p[1] * h)) for p in face_landmarks.landmarks]
+            except Exception:
+                pixel_points = None
+
+        if not pixel_points:
+            return image
+
+        # Colors
+        eye_color = Colors.GREEN
+        mouth_color = Colors.GREEN
+        if alert_type in ("DROWSY", "SLEEPING"):
+            eye_color = Colors.RED
+        elif alert_type == "YAWN":
+            mouth_color = Colors.RED
+
+        # Helper to compute bbox from indices
+        def bbox_from_indices(indices):
+            xs = [pixel_points[i][0] for i in indices if i < len(pixel_points)]
+            ys = [pixel_points[i][1] for i in indices if i < len(pixel_points)]
+            if not xs or not ys:
+                return None, None
+            min_x, max_x = min(xs), max(xs)
+            min_y, max_y = min(ys), max(ys)
+            return (max(0, min_x - 5), max(0, min_y - 5)), (min(w, max_x + 5), min(h, max_y + 5))
+
+        # Indices - prefer mp_config if available, else fall back to common indices
+        try:
+            left_idxs = mp_config.LEFT_EYE
+            right_idxs = mp_config.RIGHT_EYE
+            mouth_idxs = mp_config.MOUTH_OUTER if hasattr(mp_config, 'MOUTH_OUTER') else mp_config.MOUTH
+        except Exception:
+            left_idxs = [33, 133, 160, 159, 158, 144, 145, 153]
+            right_idxs = [362, 263, 387, 386, 385, 373, 374, 380]
+            mouth_idxs = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308]
+
+        # Draw left eye box
+        p1, p2 = bbox_from_indices(left_idxs)
+        if p1 and p2:
+            cv2.rectangle(image, p1, p2, eye_color, 1)
+
+        # Draw right eye box
+        p1, p2 = bbox_from_indices(right_idxs)
+        if p1 and p2:
+            cv2.rectangle(image, p1, p2, eye_color, 1)
+
+        # Draw mouth box
+        p1, p2 = bbox_from_indices(mouth_idxs)
+        if p1 and p2:
+            cv2.rectangle(image, p1, p2, mouth_color, 1)
+
         return image
 
 
