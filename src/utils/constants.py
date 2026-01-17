@@ -115,7 +115,7 @@ class Thresholds:
     
     # EAR (Eye Aspect Ratio)
     EAR_OPEN = 0.30              # Mắt mở bình thường
-    EAR_DROWSY = 0.25           # Ngưỡng nhắm mắt (Default)
+    EAR_DROWSY = 0.19           # Ngưỡng nhắm mắt (Default)
     EAR_CONSEC_FRAMES = 20      # Số frame liên tiếp
     
     # MAR (Mouth Aspect Ratio)

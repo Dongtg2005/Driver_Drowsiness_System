@@ -176,8 +176,20 @@ class FrameDrawer:
         x_text = 25
         
         # --- EAR (Mắt) ---
-        ear_color = Colors.RED if ear < config.EAR_THRESHOLD else Colors.GREEN
-        cv2.putText(image, f"EAR: {ear:.2f}", (x_text, y_offset),
+        ear_text = f"EAR: {ear:.2f} (T:{config.EAR_THRESHOLD:.2f})" 
+        
+        # Nếu muốn lấy ngưỡng thực tế từ monitor_controller (chính xác hơn)
+        try:
+            from src.controllers.monitor_controller import get_monitor_controller
+            current_threshold = get_monitor_controller()._ear_threshold
+            ear_text = f"EAR: {ear:.2f} / {current_threshold:.2f}"
+        except:
+            pass
+        else:
+            current_threshold = config.EAR_THRESHOLD
+            
+        ear_color = Colors.RED if ear < current_threshold else Colors.GREEN # Dùng ngưỡng thực để đổi màu
+        cv2.putText(image, ear_text, (x_text, y_offset),
                 self.font, 0.65, ear_color, 2)
 
         # --- PERCLOS (THÊM MỚI) ---

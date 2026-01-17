@@ -37,6 +37,16 @@ class CalibrationView(ctk.CTkFrame):
         if not self.controller.is_running:
             # If finished, immediately call finish actions
             if len(self.controller.ear_samples) >= self.controller.calibration_frames:
+                # retrieve threshold and show to user briefly
+                try:
+                    new_threshold = self.controller.finish_calibration(user_id=self.user_id)
+                    if isinstance(new_threshold, float):
+                        self.lbl_guide.configure(text=f"Hiệu chuẩn xong! Ngưỡng EAR: {new_threshold:.3f}")
+                        # show for 2 seconds then finish
+                        self.after(2000, self.finish)
+                        return
+                except Exception:
+                    pass
                 self.finish()
             return
         
@@ -66,6 +76,7 @@ class CalibrationView(ctk.CTkFrame):
         self.controller.stop_camera()
         # Lưu settings cho user được cung cấp
         try:
+            # Ensure settings saved (finish_calibration returns threshold)
             self.controller.finish_calibration(user_id=self.user_id)
         except Exception:
             pass

@@ -78,7 +78,7 @@ class PERCLOSDetector:
         self._open_ear_samples: List[float] = []
         self._adaptive_time = 15.0  # 15 giây calibration
         self._adaptive_start = time.time()
-        self.ear_threshold = 0.25  # Default, sẽ update sau calibration
+        self.ear_threshold = 0.19  # Default, sẽ update sau calibration
         
         # Detection parameters
         self.blink_max_duration = blink_max_duration
