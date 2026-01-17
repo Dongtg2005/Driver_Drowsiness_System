@@ -1,8 +1,9 @@
 """
 ============================================
-🔊 Audio Manager (Windows Native)
+🔊 Audio Manager (Windows Native & TTS)
 Driver Drowsiness Detection System
 Uses winsound for Windows compatibility
+Uses pyttsx3 for Text-to-Speech
 ============================================
 """
 
@@ -11,6 +12,7 @@ import sys
 import threading
 import time
 from typing import Optional
+import pyttsx3
 
 # Use winsound for Windows (built-in, no install needed)
 try:
@@ -46,7 +48,16 @@ class AudioManager:
         self._stop_flag = False
         self._current_thread: Optional[threading.Thread] = None
         
-        print("✅ Audio system initialized (Windows native)")
+        # TTS Engine
+        try:
+            self.tts_engine = pyttsx3.init()
+            self.tts_engine.setProperty('rate', 150)
+            self.tts_available = True
+        except Exception as e:
+            print(f"⚠️ TTS Init Error: {e}")
+            self.tts_available = False
+        
+        print("✅ Audio system initialized (Windows native + TTS)")
     
     def play_alert(self, level: int, loop: bool = False) -> None:
         """
@@ -117,14 +128,38 @@ class AudioManager:
         """Play critical siren (mapped to level 3). Default is looping."""
         self.play_alert(3, loop=loop)
     
+    def speak(self, text: str) -> None:
+        """Speak text using TTS engine (Async)"""
+        if not self._enabled or not self.tts_available:
+            return
+            
+        def _speak_thread():
+            try:
+                # Re-initialize engine in thread to avoid COM errors
+                engine = pyttsx3.init()
+                engine.say(text)
+                engine.runAndWait()
+            except Exception as e:
+                print(f"TTS Error: {e}")
+
+        threading.Thread(target=_speak_thread, daemon=True).start()
+
     def stop(self) -> None:
         """Stop all sounds"""
         self._stop_flag = True
         self._is_playing = False
+        if self.tts_available:
+            try:
+                self.tts_engine.stop()
+            except: pass
     
     def set_volume(self, volume: float) -> None:
         """Set volume (0.0 - 1.0) - Note: winsound doesn't support volume control"""
         self._volume = max(0.0, min(1.0, volume))
+        if self.tts_available:
+            try:
+                self.tts_engine.setProperty('volume', self._volume)
+            except: pass
     
     def enable(self) -> None:
         """Enable audio"""
@@ -162,3 +197,4 @@ def stop_alert() -> None:
 
 def set_volume(volume: float) -> None:
     audio_manager.set_volume(volume)
+

@@ -5,6 +5,7 @@ Driver Drowsiness Detection System
 - Tích hợp Fast Recovery (Hồi phục nhanh)
 - Tối ưu hóa code (Giảm lặp logic)
 - Xử lý đa luồng cho Logging
+- Tích hợp Sensor Fusion & TTS
 ============================================
 """
 
@@ -15,6 +16,7 @@ from typing import Optional, Dict, Tuple, Callable
 import threading
 import sys
 import os
+import random
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -24,6 +26,8 @@ from src.ai_core.face_mesh import FaceMeshDetector
 from src.ai_core.features import FeatureExtractor
 from src.ai_core.head_pose import HeadPoseEstimator
 from src.ai_core.drawer import FrameDrawer
+from src.ai_core.drowsiness_fusion import fusion  # [NEW] Sensor Fusion
+from src.ai_core.image_enhancer import enhance_image # [NEW] Night Mode
 from src.models.alert_model import alert_model, session_model
 from src.utils.constants import AlertType, AlertLevel, DetectionState, Colors, Messages
 from src.utils.audio_manager import audio_manager
@@ -66,6 +70,7 @@ class MonitorController:
         # Timing
         self._start_time: Optional[float] = None
         self._last_alert_time: Optional[float] = None
+        self._last_tts_time: Optional[float] = None # Cooldown cho TTS
         self._frame_count = 0
         self._fps = 0.0
         self._last_fps_time = time.time()
@@ -197,6 +202,11 @@ class MonitorController:
         # 1. Preprocessing
         if not is_external:
             frame = cv2.flip(frame, 1)
+        
+        # [NIGHT MODE] Tăng sáng ảnh nếu được bật
+        if config.ENABLE_NIGHT_MODE:
+            frame = enhance_image(frame)
+
         self._update_fps()
 
         # 2. Detect Face
@@ -209,7 +219,8 @@ class MonitorController:
             'state': DetectionState.NORMAL.value,
             'alert_level': AlertLevel.NONE.value,
             'face_detected': False,
-            'is_drowsy': False, 'is_smiling': False
+            'is_drowsy': False, 'is_smiling': False,
+            'sunglasses': False, 'score': 0
         }
 
         # 3. Handle No Face
@@ -235,16 +246,17 @@ class MonitorController:
         self._current_features = features
         self._current_ear = features.get('ear', 0.0)
         self._current_mar = features.get('mar', 0.0)
+        is_smiling = features.get('is_smiling', False)
         
         # Head Pose
         pitch, yaw, roll = self.head_pose_estimator.estimate(face)
         self._current_pitch = pitch
         self._current_yaw = yaw
 
-        # 5. Check Drowsiness (Unified Logic)
-        self._check_drowsiness_unified(features, pitch)
+        # 5. Check Drowsiness (Unified Logic via Fusion)
+        fusion_result = self._check_drowsiness_fusion(features, pitch, is_smiling)
 
-        # 6. Update Data
+        # 6. Update Data with Fusion Results
         data.update({
             'ear': self._current_ear,
             'mar': self._current_mar,
@@ -254,7 +266,9 @@ class MonitorController:
             'state': self._state.value,
             'alert_level': self._alert_level.value,
             'is_drowsy': features.get('is_drowsy', False),
-            'is_smiling': features.get('is_smiling', False)
+            'is_smiling': is_smiling,
+            'sunglasses': fusion_result.get('sunglasses', False),
+            'score': fusion_result.get('score', 0)
         })
 
         # 7. Drawing
@@ -265,7 +279,10 @@ class MonitorController:
             
             frame = self.frame_drawer.draw_detected_outlines(frame, face)
             frame = self.frame_drawer.draw_eyes(frame, face, closed=eyes_closed)
-            frame = self.frame_drawer.draw_mouth(frame, face, yawning=yawning)
+            # [REMOVED] Mouth Frame per user request
+            # frame = self.frame_drawer.draw_mouth(frame, face, yawning=yawning)
+            
+            # [RESTORED] Head Bounding Box
             frame = self.frame_drawer.draw_bounding_box(
                 frame, face, color=Colors.get_status_color(self._alert_level)
             )
@@ -286,10 +303,12 @@ class MonitorController:
                 msg = self._get_alert_message()
                 frame = self.frame_drawer.draw_alert_overlay(frame, self._alert_level, msg)
                 
-            # Vẽ trạng thái phụ
-            status_text = ""
-            if features.get('is_smiling', False): status_text += "😊 Smiling "
-            if features.get('is_just_blinking', False): status_text += "👁️ Blinking"
+            # Vẽ trạng thái phụ & Score
+            status_text = f"Score: {data['score']} "
+            if is_smiling: status_text += "😊 Smiling "
+            if features.get('is_just_blinking', False): status_text += "👁️ Blink "
+            if data['sunglasses']: status_text += "🕶️ Sunglasses "
+            
             if status_text:
                 cv2.putText(frame, status_text, (10, frame.shape[0]-20),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
@@ -303,99 +322,47 @@ class MonitorController:
 
         return frame, data
 
-    def _check_drowsiness_unified(self, features: Dict, pitch: float) -> None:
+    def _check_drowsiness_fusion(self, features: Dict, pitch: float, is_smiling: bool) -> Dict:
         """
-        Logic kiểm tra buồn ngủ thông minh.
-        Ưu tiên trạng thái Mắt Hiện Tại (Instant EAR) để ngắt báo động nhanh.
+        Sử dụng DrowsinessFusion Engine để đánh giá tổng thể.
         """
-        # 0. Nếu đang cười hoặc chớp mắt -> Bỏ qua mọi alert
-        if features.get('is_smiling', False) or features.get('is_just_blinking', False):
-            if self._alert_level > AlertLevel.NONE:
-                 self._drowsy_frames = max(0, self._drowsy_frames - 5)
-                 if self._drowsy_frames == 0:
-                     self._alert_level = AlertLevel.NONE
-                     self._state = DetectionState.NORMAL
-                     self.stop_alert()
-            return
-
-        # --- SỬA ĐỔI QUAN TRỌNG TẠI ĐÂY ---
+        is_yawning = (features.get('mar', 0) > self._mar_threshold)
         
-        # 1. Xác định trạng thái Mắt hiện tại (Tức thời)
-        # Thay vì dùng 'is_drowsy' (chứa cả PERCLOS), ta so sánh trực tiếp EAR
-        current_ear = self._current_ear
-        threshold = self._ear_threshold
+        # Cập nhật Fusion Engine
+        # EAR, MAR, Pitch, Yawn status, Timestamp, Smiling Status
+        result = fusion.update(
+            ear=features.get('ear', 0.3),
+            mar=features.get('mar', 0.0),
+            is_yawning=is_yawning,
+            pitch=pitch,
+            timestamp=time.time(),
+            is_smiling=is_smiling
+        )
         
-        # Mắt đang đóng (Instant)
-        is_eyes_closed_now = current_ear < threshold 
+        # Mapping action từ Fusion sang AlertLevel
+        action = result.get('action')
+        score = result.get('score', 0)
         
-        # Chỉ số PERCLOS (Lịch sử 60s)
-        perclos = features.get('perclos', 0.0)
-
-        if is_eyes_closed_now:
-            # --- ĐANG NHẮM MẮT ---
-            self._drowsy_frames += 1
-            self._eyes_open_frames = 0 # Reset bộ đếm tỉnh táo
-            self._state = DetectionState.EYES_CLOSED
-            
-            # Leo thang mức độ cảnh báo
-            # Ưu tiên 1: PERCLOS cao (Ngủ gật mãn tính)
-            if perclos > 0.35: self._alert_level = AlertLevel.CRITICAL
-            elif perclos > 0.25: self._alert_level = AlertLevel.ALARM
-            # Ưu tiên 2: Nhắm mắt lâu (Ngủ gật tức thời)
-            elif self._drowsy_frames > 45: self._alert_level = AlertLevel.WARNING # >1.5s
-            
+        # Xác định State & Alert Level
+        if action == 'alarm':
+            self._alert_level = AlertLevel.ALARM
+            # Đoán nguyên nhân chính để set state
+            if is_yawning: self._state = DetectionState.YAWNING
+            elif pitch < -self._head_threshold: self._state = DetectionState.HEAD_DOWN
+            else: self._state = DetectionState.EYES_CLOSED
+        elif action == 'beep':
+            self._alert_level = AlertLevel.WARNING
         else:
-            # --- ĐANG MỞ MẮT ---
-            self._eyes_open_frames += 1
-            
-            # [CƠ CHẾ CƯỠNG CHẾ HỒI PHỤC]
-            # Nếu mở mắt to liên tục 2 giây (60 frames) -> XOÁ SẠCH BÁO ĐỘNG
-            # Bất kể PERCLOS đang cao bao nhiêu!
-            if self._eyes_open_frames > 60:
-                self._alert_level = AlertLevel.NONE
-                self._state = DetectionState.NORMAL
-                self._drowsy_frames = 0
-                self.stop_alert()
-                return # Thoát luôn
-            
-            # Nếu chưa đủ 2s, giảm dần bộ đếm buồn ngủ
-            self._drowsy_frames = max(0, self._drowsy_frames - 3)
-            
-            # Nếu bộ đếm về 0, tạm tắt alert (nhưng nếu PERCLOS vẫn quá cao thì frame sau có thể bật lại)
-            if self._drowsy_frames == 0:
-                if self._state == DetectionState.EYES_CLOSED:
-                    self._state = DetectionState.NORMAL
-                    # Lưu ý: Không tắt AlertLevel ngay nếu PERCLOS vẫn > 0.35
-                    # Để an toàn, chỉ hạ cấp độ cảnh báo
-                    if perclos < 0.25: 
-                        self._alert_level = AlertLevel.NONE
-
-        # 2. Kiểm tra Ngáp (Yawn) - Giữ nguyên
-        if not is_eyes_closed_now: 
-            if self._current_mar > self._mar_threshold:
-                self._yawn_frames += 1
-                if self._yawn_frames >= 10:
-                    self._state = DetectionState.YAWNING
-                    self._alert_level = max(self._alert_level, AlertLevel.WARNING)
-                    self._eyes_open_frames = 0 
-            else:
-                self._yawn_frames = max(0, self._yawn_frames - 1)
-
-        # 3. Kiểm tra Gục đầu (Head Down) - Giữ nguyên
-        if pitch < -self._head_threshold:
-            self._head_down_frames += 1
-            if self._head_down_frames >= 15:
-                self._state = DetectionState.HEAD_DOWN
-                self._alert_level = max(self._alert_level, AlertLevel.ALARM)
-                self._eyes_open_frames = 0
-        else:
-            self._head_down_frames = max(0, self._head_down_frames - 1)
-
-        # 4. Trigger Alert
+            self._alert_level = AlertLevel.NONE
+            self._state = DetectionState.NORMAL
+        
+        # Xử lý Trigger Alert
         if self._alert_level != AlertLevel.NONE:
-            self._trigger_alert()
+            self._trigger_alert(score=score)
         else:
             self.stop_alert()
+            
+        return result
 
     # =========================================================================
     # PUBLIC API WRAPPERS
@@ -425,9 +392,26 @@ class MonitorController:
     # UTILITIES
     # =========================================================================
 
-    def _trigger_alert(self) -> None:
+    def _trigger_alert(self, score: int = 0) -> None:
         curr_time = time.time()
-        # Cooldown 0.5s để tránh spam log
+        
+        # TTS Logic (Smart Recommendations)
+        if config.ENABLE_TTS:
+            # Chỉ nói mỗi 10 giây một lần để tránh spam
+            if not self._last_tts_time or (curr_time - self._last_tts_time) > 10.0:
+                hint = ""
+                if score > 40: # Rất buồn ngủ
+                    hint = "DANGER! Please stop the car immediately!"
+                elif score > 30:
+                    hint = "You are drowsy. Please wake up."
+                elif self._state == DetectionState.YAWNING:
+                    hint = "You are yawning too much."
+                
+                if hint:
+                    audio_manager.speak(hint)
+                    self._last_tts_time = curr_time
+
+        # Âm thanh cảnh báo (Beep/Siren) vẫn chạy song song
         if self._last_alert_time and (curr_time - self._last_alert_time) < 0.5:
             return
 
@@ -455,7 +439,7 @@ class MonitorController:
         if self._state == DetectionState.EYES_CLOSED: alert_type = AlertType.DROWSY
         elif self._state == DetectionState.YAWNING: alert_type = AlertType.YAWN
         elif self._state == DetectionState.HEAD_DOWN: alert_type = AlertType.HEAD_DOWN
-        else: return
+        else: return # Log other types?
 
         if self._last_alert_type == alert_type: return # Tránh duplicate liên tục
         self._last_alert_type = alert_type

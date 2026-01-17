@@ -23,6 +23,7 @@ matplotlib>=3.7.0
 # Audio
 pygame==2.5.2
 pandas>=2.0.0
+pyttsx3==2.90
 
 # Environment Variables
 python-dotenv==1.0.0
