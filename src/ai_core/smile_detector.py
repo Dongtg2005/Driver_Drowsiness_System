@@ -48,14 +48,14 @@ class SmileDetector:
     """
     
     def __init__(self,
-                 smile_mar_min: float = 0.40,
-                 smile_mar_max: float = 0.65,
-                 smile_width_ratio: float = 1.8,
+                 smile_mar_min: float = 0.35,       # Giảm min để bắt cười mỉm
+                 smile_mar_max: float = 0.85,       # Tăng max để bắt cười lớn
+                 smile_width_ratio: float = 1.5,    # Giảm ratio (dễ bắt hơn)
                  speaking_mar_min: float = 0.30,
                  speaking_mar_max: float = 0.55,
                  yawn_mar_min: float = 0.65,
-                 ear_difference_max: float = 0.08,
-                 confidence_threshold: float = 0.55,
+                 ear_difference_max: float = 0.15,  # Tăng độ chênh lệch cho phép
+                 confidence_threshold: float = 0.45, # Giảm confidence threshold
                  smile_window: int = 10):
         """
         Args:
@@ -122,7 +122,7 @@ class SmileDetector:
         # 2. Cười: MAR vừa + mouth kéo ngang + mắt híp đều
         elif (self.smile_mar_min < mar < self.smile_mar_max and
               mouth_ratio > self.smile_width_ratio and
-              0.18 < ear_avg < 0.30 and
+              0.05 < ear_avg < 0.30 and
               ear_diff < self.ear_difference_max):
             state = MouthState.SMILING
             # Tính confidence
@@ -248,7 +248,7 @@ class SmileDetector:
             True nếu đang cười và EAR giảm là do cười
         """
         return (self._current_state == MouthState.SMILING and 
-                0.18 < ear_avg < 0.30)
+                0.05 < ear_avg < 0.30)
     
     def get_statistics(self) -> dict:
         """Lấy thống kê"""

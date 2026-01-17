@@ -59,7 +59,11 @@ class Config:
     # 5. DETECTION THRESHOLDS (Mặc định)
     # ----------------------------------
     # Ngưỡng mắt (EAR): Càng nhỏ càng dễ báo nhắm mắt
-    EAR_THRESHOLD = 0.25
+    EAR_THRESHOLD = 0.15
+    
+    # Feature Flags
+    ENABLE_NIGHT_MODE = True
+    ENABLE_TTS = True
     # Số frame liên tiếp mắt nhắm để báo động
     EAR_CONSEC_FRAMES = 20 
     
