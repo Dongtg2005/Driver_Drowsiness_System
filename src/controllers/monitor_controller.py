@@ -226,7 +226,24 @@ class MonitorController:
         # 3. Handle No Face
         if not faces:
             self._no_face_frames += 1
-            # Nếu mất mặt quá 5 frames -> Reset trạng thái để tránh báo ảo
+            
+            # [CRITICAL UPDATE] LAST KNOWN STATE HEURISTIC
+            # Nếu mất mặt nhưng trước đó đầu đang chúi xuống -> Gục đầu (Head Drop)
+            # Ngưỡng -20 là khá sâu (đã tính là gục)
+            if self._current_pitch < -20.0:
+                 self._state = DetectionState.HEAD_DOWN
+                 self._alert_level = AlertLevel.CRITICAL
+                 # Kích hoạt báo động ngay (Không cần đợi counters)
+                 self._trigger_alert(score=100)
+                 
+                 # Vẽ cảnh báo lên frame dù không thấy mặt
+                 msg = "HEAD DROP DETECTED"
+                 frame = self.frame_drawer.draw_alert_overlay(frame, self._alert_level, msg)
+                 data['state'] = DetectionState.HEAD_DOWN.value
+                 data['alert_level'] = AlertLevel.CRITICAL.value
+                 return frame, data
+
+            # Nếu mất mặt quá 5 frames (và không phải gục đầu) -> Reset
             if self._no_face_frames > 5:
                 self._state = DetectionState.NO_FACE
                 self._reset_counters() # Reset hết để không lưu alert cũ
