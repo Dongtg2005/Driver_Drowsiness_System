@@ -60,14 +60,16 @@ class Config:
     # ----------------------------------
     # Ngưỡng mắt (EAR): Càng nhỏ càng dễ báo nhắm mắt
     EAR_THRESHOLD = 0.25
-    # Số frame liên tiếp mắt nhắm để báo động
-    EAR_CONSEC_FRAMES = 20 
+    # Số frame liên tiếp mắt nhắm để báo động (Cảnh báo 3 cấp độ)
+    EAR_CONSEC_FRAMES = 20          # Level 1: Warning (~0.7s)
+    EAR_CONSEC_FRAMES_LEVEL_2 = 60  # Level 2: Danger (~2s)
+    EAR_CONSEC_FRAMES_LEVEL_3 = 100 # Level 3: Critical (~3.3s)
     
     # Ngưỡng miệng (MAR): Càng lớn càng dễ báo ngáp
     MAR_THRESHOLD = 0.70
     
     # Góc đầu (Độ) - Tăng ngưỡng để giảm false positive
-    HEAD_PITCH_THRESHOLD = 35.0 # Cúi đầu/Ngửa đầu (góc dương = cúi đầu)
+    HEAD_PITCH_THRESHOLD = 35.0 # Cúi đầu (góc âm = cúi đầu)
     HEAD_YAW_THRESHOLD = 40.0   # Quay trái/phải
 
 # Global Config Instance

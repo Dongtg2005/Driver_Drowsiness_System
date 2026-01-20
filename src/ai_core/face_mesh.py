@@ -103,18 +103,17 @@ class FaceMeshDetector:
             self._face_landmarker = vision.FaceLandmarker.create_from_options(options)
             print("✅ Face Landmarker initialized (Tasks API)")
             
-        except OSError as e:
-            # Handle Python 3.14 ctypes issue with 'free' function
-            if "free" in str(e):
-                print("⚠️ MediaPipe Tasks API has compatibility issues with Python 3.14")
+        except (OSError, AttributeError, Exception) as e:
+            error_msg = str(e).lower()
+            # Handle ctypes/dll issues with 'free' function or other compatibility problems
+            if "free" in error_msg or "ctypes" in error_msg or "dll" in error_msg or "libmediapipe" in error_msg:
+                print(f"⚠️ MediaPipe Tasks API has compatibility issues: {e}")
                 print("⚠️ Falling back to legacy MediaPipe solutions API...")
                 self._try_legacy_mediapipe()
             else:
-                print(f"❌ Error initializing Face Landmarker: {e}")
-                self._face_landmarker = None
-        except Exception as e:
-            print(f"❌ Error initializing Face Landmarker: {e}")
-            self._face_landmarker = None
+                print(f"⚠️ Error with Tasks API: {e}")
+                print("⚠️ Attempting fallback to legacy API...")
+                self._try_legacy_mediapipe()
     
     def _try_legacy_mediapipe(self) -> None:
         """Try to use legacy MediaPipe solutions API as fallback"""

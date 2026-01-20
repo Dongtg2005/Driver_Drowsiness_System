@@ -6,6 +6,8 @@ Hệ thống phát hiện lái xe ngủ gật sử dụng Computer Vision và AI
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.8+-green.svg)
 ![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10+-orange.svg)
 ![MySQL](https://img.shields.io/badge/MySQL-8.0+-blue.svg)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-red.svg)
+![Alembic](https://img.shields.io/badge/Alembic-1.13-blue.svg)
 
 ## 📋 Mục Lục
 
@@ -53,24 +55,45 @@ Hệ thống phát hiện lái xe ngủ gật sử dụng Computer Vision và AI
 
 ## 🚀 Cài đặt
 
-### 1. Clone repository
-```bash
-git clone https://github.com/yourusername/driver-drowsiness-system.git
-cd driver-drowsiness-system
+> Khuyến nghị dùng **Python 3.9 – 3.11** để tương thích tốt với `mediapipe`.
+
+### 0. Kiểm tra Python & pip
+
+**Windows (khuyến nghị PowerShell):**
+```powershell
+python --version
+python -m pip --version
 ```
 
-### 2. Tạo môi trường ảo
+### 1. Clone repository
 ```bash
+git clone https://github.com/yourusername/driver-drowsiness-system.git Driver_Drowsiness_System
+cd Driver_Drowsiness_System
+```
+
+### 2. Tạo môi trường ảo (venv)
+
+**Windows (PowerShell):**
+```powershell
+# Tạo venv
 python -m venv venv
 
+<<<<<<< HEAD
 # Windows (PowerShell)
 .\venv\Scripts\Activate.ps1
 
 # Windows (CMD)
 venv\Scripts\activate.bat
+=======
+# (Khuyến nghị) nâng pip / setuptools / wheel
+python -m pip install --upgrade pip setuptools wheel
+>>>>>>> 81b5d5a (Add database migrations and backend updates)
 
-# macOS/Linux
-source venv/bin/activate
+# Nếu bị chặn chạy script: chỉ bật tạm trong phiên hiện tại
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# Kích hoạt venv
+.\venv\Scripts\Activate.ps1
 ```
 
 ### 3. Cài đặt dependencies
@@ -85,8 +108,9 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=drowsiness_db
 DB_USER=root
-DB_PASSWORD=your_password
+DB_PASSWORD=
 ```
+<<<<<<< HEAD
 > ⚠️ Thay `your_password` bằng mật khẩu MySQL của bạn
 
 ### 5. Cấu hình Database MySQL
@@ -106,12 +130,46 @@ CREATE DATABASE IF NOT EXISTS drowsiness_db;
 USE drowsiness_db;
 SOURCE /path/to/database.sql;
 ```
+=======
+> Nếu MySQL của bạn có đặt mật khẩu cho user `root`, hãy điền vào `DB_PASSWORD`.
+
+### 5. Cấu hình Database MySQL
+
+Hệ thống sử dụng **Alembic** để quản lý và cập nhật cấu trúc database một cách tự động, thay thế cho việc chạy file `.sql` thủ công.
+
+#### Bước 1: Tạo Database Rỗng
+Đầu tiên, bạn cần tạo một database rỗng trong MySQL. Bạn có thể dùng command line hoặc một công cụ như MySQL Workbench/DBeaver.
+
+```bash
+# Dùng command line để tạo database
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS drowsiness_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+```
+
+#### Bước 2: Áp dụng Cấu trúc (Migration)
+Sau khi có database rỗng, hãy chạy lệnh sau từ thư mục gốc của dự án để Alembic tự động tạo tất cả các bảng cần thiết.
+
+> **Lưu ý:** Đảm bảo môi trường ảo (`venv`) của bạn đã được kích hoạt trước khi chạy lệnh.
+
+```bash
+# Lệnh này sẽ đọc các file cấu hình và tự động cập nhật database
+python -m alembic upgrade head
+```
+Thế là xong! Alembic sẽ lo phần còn lại. Bạn không cần phải import file `database.sql` nữa.
+>>>>>>> 81b5d5a (Add database migrations and backend updates)
 
 ### 6. Chạy ứng dụng
 ```bash
 python main.py
 ```
 
+<<<<<<< HEAD
+=======
+### 7. Thoát môi trường ảo
+```bash
+deactivate
+```
+
+>>>>>>> 81b5d5a (Add database migrations and backend updates)
 ### 7. Đăng nhập test
 ```
 Username: admin
@@ -195,7 +253,7 @@ ALERT_VOLUME = 0.8
 ## 🏗️ Kiến trúc
 
 ```
-driver-drowsiness-system/
+Driver_Drowsiness_System/
 ├── main.py                 # Entry point
 ├── config.py               # Cấu hình
 ├── src/
@@ -276,7 +334,3 @@ MIT License - xem file [LICENSE](LICENSE) để biết thêm chi tiết.
 
 - Email: your.email@example.com
 - GitHub: [@yourusername](https://github.com/yourusername)
-
----
-
-⭐ Nếu dự án hữu ích, hãy cho một star nhé!

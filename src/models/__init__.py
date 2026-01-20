@@ -1,12 +1,3 @@
-"""
-Models package initialization
-"""
-
-from .user_model import user_model
-from .alert_model import alert_model, session_model
-
-__all__ = [
-    'user_model',
-    'alert_model',
-    'session_model'
-]
+# This file is intentionally left blank.
+# It marks the 'models' directory as a Python package,
+# allowing direct import of its modules (e.g., `from src.models import user_model`).

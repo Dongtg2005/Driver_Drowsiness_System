@@ -1,0 +1,102 @@
+I. Cải thiện về Chức năng (Features)
+1.
+Cá nhân hóa ngưỡng phát hiện (Dynamic Thresholds):
+◦
+Hiện tại: Các ngưỡng EAR_THRESHOLD, MAR_THRESHOLD, HEAD_PITCH_THRESHOLD được đặt cố định trong config.py.
+◦
+Cải thiện: Mỗi người có đặc điểm khuôn mặt và thói quen khác nhau. Hệ thống có thể yêu cầu người dùng thực hiện một "bài kiểm tra" ngắn khi mắt mở bình thường, nhắm mắt, ngáp để tự động hiệu chỉnh các ngưỡng này cho phù hợp với từng cá nhân. Điều này giúp giảm thiểu cảnh báo sai (false positives) và tăng độ chính xác.
+◦
+Thực hiện: Lưu các ngưỡng cá nhân vào cơ sở dữ liệu cho từng người dùng.
+2.
+Xử lý các tình huống phức tạp:
+◦
+Kính mắt/Kính râm: Hệ thống có thể gặp khó khăn khi phát hiện mắt nếu người lái xe đeo kính. Cân nhắc các thuật toán hoặc mô hình có khả năng xử lý tốt hơn trong các trường hợp này.
+
+Điều kiện ánh sáng: Ánh sáng yếu hoặc quá chói có thể ảnh hưởng đến độ chính xác của việc phát hiện. Cân nhắc các kỹ thuật tiền xử lý ảnh (image pre-processing) để chuẩn hóa ánh sáng.
+◦
+Chuyển động đầu nhanh/quay mặt: Phân biệt giữa việc quay đầu nhanh (không phải ngủ gật) và gục đầu do buồn ngủ.
+3.
+Cảnh báo đa phương thức (Multi-modal Alerts):
+◦
+Hiện tại: Chỉ có cảnh báo âm thanh.
+◦
+Cải thiện: Trong môi trường xe hơi, cảnh báo rung (haptic feedback) trên ghế hoặc vô lăng có thể hiệu quả hơn, đặc biệt nếu người lái xe đang nghe nhạc lớn hoặc có vấn đề về thính giác. Cân nhắc tích hợp với các thiết bị rung nếu dự án được phát triển cho phần cứng cụ thể.
+◦
+Gợi ý khác: Cảnh báo bằng giọng nói ("Bạn có vẻ buồn ngủ, hãy nghỉ ngơi!") có thể thân thiện hơn.
+
+4.
+Phân tích hành vi dài hạn & Dự đoán:
+◦
+Hiện tại: Báo cáo chủ yếu là lịch sử cảnh báo.
+◦
+Cải thiện:
+▪
+Mô hình hóa hành vi: Phân tích các mẫu cảnh báo theo thời gian (ví dụ: thường xuyên buồn ngủ vào khung giờ nào, sau bao nhiêu giờ lái xe liên tục).
+▪
+Dự đoán: Dựa trên các mẫu hành vi, hệ thống có thể đưa ra cảnh báo sớm hơn hoặc gợi ý nghỉ ngơi trước khi tình trạng buồn ngủ trở nên nghiêm trọng.
+▪
+Tích hợp với dữ liệu khác: Nếu có thể, tích hợp với dữ liệu về thời gian lái xe, quãng đường đã đi để đưa ra khuyến nghị chính xác hơn.
+
+5.
+Giao diện người dùng (UI/UX):
+◦
+Cấu hình trong UI: Thay vì chỉ chỉnh sửa config.py, cho phép người dùng điều chỉnh các thông số như ngưỡng cảnh báo, âm lượng, loại âm thanh cảnh báo trực tiếp trong giao diện cài đặt của ứng dụng.
+◦
+Phản hồi trực quan: Ngoài các thông số EAR/MAR, có thể hiển thị một biểu tượng hoặc thanh trạng thái đơn giản cho biết mức độ tỉnh táo hiện tại của người lái xe.
+
+II. Cải thiện về Cấu trúc & Mã nguồn (Code & Architecture)
+1.
+Quản lý cấu hình (Configuration Management):
+◦
+Hiện tại: config.py và .env.
+◦
+Cải thiện: Đối với các cấu hình có thể thay đổi trong quá trình chạy hoặc theo người dùng (như ngưỡng cảnh báo), nên lưu trữ chúng trong cơ sở dữ liệu thay vì file tĩnh. config.py nên chỉ chứa các cấu hình hệ thống cố định.
+◦
+Thư viện: Có thể sử dụng thư viện như Dynaconf hoặc ConfigParser để quản lý cấu hình phức tạp hơn.
+
+2.
+Xử lý lỗi và Logging:
+◦
+Hiện tại: README có phần Troubleshooting, nhưng không rõ về cơ chế xử lý lỗi trong code.
+◦
+Cải thiện:
+▪
+Logging: Triển khai một hệ thống logging mạnh mẽ (sử dụng module logging của Python) để ghi lại các sự kiện quan trọng, lỗi, cảnh báo. Điều này rất hữu ích cho việc debug và theo dõi hiệu suất.
+▪
+Xử lý ngoại lệ: Đảm bảo các khối code quan trọng (kết nối DB, truy cập camera, xử lý AI) được bao bọc bởi try-except để ứng dụng không bị crash đột ngột.
+
+3.
+Tối ưu hóa hiệu suất (Performance Optimization):
+◦
+Computer Vision: Các tác vụ xử lý hình ảnh và AI có thể tốn tài nguyên.
+▪
+Multi-threading/Multi-processing: Cân nhắc chạy các tác vụ nặng (như xử lý frame từ camera, tính toán AI) trên các luồng hoặc tiến trình riêng biệt để không làm gián đoạn giao diện người dùng.
+▪
+Tối ưu hóa OpenCV: Sử dụng các hàm tối ưu của OpenCV, tránh các vòng lặp không cần thiết.
+▪
+Hardware Acceleration: Nếu có thể, tận dụng GPU (ví dụ: với TensorFlow/PyTorch nếu bạn chuyển sang các mô hình phức tạp hơn) hoặc các thư viện được tối ưu hóa cho phần cứng.
+
+4.
+Kiểm thử tự động (Automated Testing):
+◦
+Hiện tại: Có mục Testing với pytest. Đây là một điểm cộng lớn!
+◦
+Cải thiện:
+▪
+Độ bao phủ (Coverage): Đảm bảo các bài kiểm thử bao phủ hầu hết các module quan trọng, đặc biệt là các hàm tính toán EAR/MAR, logic cảnh báo, và tương tác database.
+▪
+Mocking: Sử dụng mock để kiểm thử các thành phần phụ thuộc bên ngoài (như camera, database) mà không cần chúng hoạt động thực sự.
+
+5.
+Quản lý Database (Database Management):
+◦
+Hiện tại: Sử dụng database.sql để tạo schema.
+◦
+Cải thiện: Đối với các dự án lớn hơn, cân nhắc sử dụng một công cụ quản lý migration (ví dụ: Alembic nếu bạn dùng SQLAlchemy, hoặc tự viết script đơn giản) để dễ dàng quản lý các thay đổi về schema database theo thời gian.
+
+6.
+Đóng gói và Triển khai (Packaging & Deployment):
+◦
+Hiện tại: Hướng dẫn chạy bằng python main.py.
+◦
+Cải thiện: Cân nhắc đóng gói ứng dụng thành một file thực thi độc lập (ví dụ: dùng PyInstaller) để người dùng cuối có thể chạy mà không cần cài đặt Python hay các dependencies thủ công.
