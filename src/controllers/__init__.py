@@ -11,3 +11,10 @@ __all__ = [
     'MonitorController',
     'settings_controller'
 ]
+
+def __init__(self, user_id: int = None):
+        # ... (các biến cũ giữ nguyên)
+        self._drowsy_frames = 0
+        
+        # [MỚI] Thêm biến này để đếm thời gian tỉnh táo
+        self._eyes_open_frames = 0

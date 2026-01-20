@@ -7,6 +7,8 @@
 opencv-python==4.8.1.78
 mediapipe==0.10.14
 matplotlib==3.8.2
+scipy==1.11.4
+imutils>=0.5.4
 
 # Database
 mysql-connector-python==9.0.0
@@ -14,10 +16,13 @@ protobuf==4.25.3
 
 # GUI
 customtkinter==5.2.1
+packaging
 Pillow==10.1.0
 
 # Audio
 pygame==2.5.2
+pandas>=2.0.0
+pyttsx3==2.90
 
 # Environment Variables
 python-dotenv==1.0.0
@@ -27,6 +32,3 @@ numpy==1.26.2
 
 # Password Hashing
 bcrypt==4.1.1
-
-# For Head Pose Estimation
-scipy==1.11.4

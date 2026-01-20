@@ -43,7 +43,7 @@ class Config:
     DB_PORT = int(os.getenv("DB_PORT", 3306))
     DB_NAME = os.getenv("DB_NAME", "drowsiness_db")
     DB_USER = os.getenv("DB_USER", "root")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "") 
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "12345") 
 
     # ----------------------------------
     # 4. AUDIO & ALERTS (Phần bạn đang thiếu)
@@ -59,7 +59,13 @@ class Config:
     # 5. DETECTION THRESHOLDS (Mặc định)
     # ----------------------------------
     # Ngưỡng mắt (EAR): Càng nhỏ càng dễ báo nhắm mắt
-    EAR_THRESHOLD = 0.25
+    # Ngưỡng mắt (EAR): Càng nhỏ càng dễ báo nhắm mắt
+    EAR_THRESHOLD = 0.25 # Sử dụng ngưỡng an toàn hơn
+    
+    # Feature Flags
+    ENABLE_NIGHT_MODE = True
+    ENABLE_TTS = True
+
     # Số frame liên tiếp mắt nhắm để báo động (Cảnh báo 3 cấp độ)
     EAR_CONSEC_FRAMES = 20          # Level 1: Warning (~0.7s)
     EAR_CONSEC_FRAMES_LEVEL_2 = 60  # Level 2: Danger (~2s)
