@@ -114,6 +114,19 @@ class LoginView(ctk.CTkFrame):
         )
         self.password_entry.pack(fill="x", pady=(5, 0))
         
+        # Remember Me Checkbox
+        self.remember_var = ctk.StringVar(value="off")
+        self.chk_remember = ctk.CTkCheckBox(
+            form_card, 
+            text="Ghi nhớ đăng nhập",
+            variable=self.remember_var,
+            onvalue="on", 
+            offvalue="off",
+            font=ctk.CTkFont(size=12),
+            text_color=Colors.TEXT_SECONDARY
+        )
+        self.chk_remember.pack(anchor="w", pady=(15, 0))
+
         # Error message label
         self.error_label = StyledLabel(
             form_card,
@@ -160,19 +173,28 @@ class LoginView(ctk.CTkFrame):
         self.username_entry.bind("<Return>", lambda e: self.password_entry.focus())
         self.password_entry.bind("<Return>", lambda e: self._on_login())
         
-        # Focus username entry
-        self.username_entry.focus()
+        # Fill saved credentials
+        saved_user, saved_pass = auth_controller.get_saved_credentials()
+        if saved_user:
+            self.username_entry.insert(0, saved_user)
+            self.password_entry.insert(0, saved_pass)
+            self.remember_var.set("on")
+            self.login_btn.focus() # Focus on login button if autofilled
+        else:
+            # Focus username entry
+            self.username_entry.focus()
     
     def _on_login(self):
         """Handle login button click"""
         username = self.username_entry.get().strip()
         password = self.password_entry.get()
+        remember = (self.remember_var.get() == "on")
         
         # Clear previous error
         self.error_label.configure(text="")
         
         # Attempt login
-        success, message, user = auth_controller.login(username, password)
+        success, message, user = auth_controller.login(username, password, remember=remember)
         
         if success:
             if self.on_login_success:

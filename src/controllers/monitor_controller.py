@@ -243,7 +243,7 @@ class MonitorController:
                  self._trigger_alert(score=100)
                  
                  # Vẽ cảnh báo lên frame dù không thấy mặt
-                 msg = "HEAD DROP DETECTED"
+                 msg = "PHAT HIEN GUC DAU"
                  frame = self.frame_drawer.draw_alert_overlay(frame, self._alert_level, msg)
                  data['state'] = DetectionState.HEAD_DOWN.value
                  data['alert_level'] = AlertLevel.CRITICAL.value
@@ -294,6 +294,16 @@ class MonitorController:
             'score': fusion_result.get('score', 0)
         })
 
+        # Thông tin cảnh báo cho UI (Toast/đếm số)
+        data['alert_triggered'] = (self._alert_level != AlertLevel.NONE)
+        data['alert_message'] = self._get_alert_message() if self._alert_level != AlertLevel.NONE else ""
+        if self._state == DetectionState.EYES_CLOSED:
+            data['alert_type'] = 'DROWSY'
+        elif self._state == DetectionState.YAWNING:
+            data['alert_type'] = 'YAWN'
+        elif self._state == DetectionState.HEAD_DOWN:
+            data['alert_type'] = 'HEAD_DOWN'
+
         # 7. Drawing
         try:
             # Vẽ khung xanh/đỏ
@@ -310,31 +320,28 @@ class MonitorController:
                 frame, face, color=Colors.get_status_color(self._alert_level)
             )
             
-            # Vẽ bảng thông số
-            perclos_val = features.get('perclos', 0.0)
-            eye_state_val = features.get('eye_state', 'OPEN')
-            if hasattr(eye_state_val, 'value'): eye_state_val = eye_state_val.value
+            # Chuẩn bị Status Text (Icons)
+            secondary_status = ""
+            if is_smiling: secondary_status += "😊 Smiling "
+            if features.get('is_just_blinking', False): secondary_status += "👁️ Blink "
+            if data['sunglasses']: secondary_status += "🕶️ Sunglasses "
 
+            # Cập nhật lời gọi hàm draw_status_panel với Score và Status
             frame = self.frame_drawer.draw_status_panel(
                 frame, self._current_ear, self._current_mar,
                 self._current_pitch, self._current_yaw, self._fps,
-                self._alert_level, perclos_val, str(eye_state_val)
+                self._alert_level, data['perclos'], str(self._state),
+                score=data['score'], 
+                secondary_status=secondary_status
             )
             
-            # Vẽ Alert Overlay (nếu có)
-            if self._alert_level != AlertLevel.NONE:
+            # Vẽ Alert Overlay (nếu có) và được bật trong cấu hình
+            if self._alert_level != AlertLevel.NONE and config.SHOW_ALERT_OVERLAY_ON_FRAME:
                 msg = self._get_alert_message()
                 frame = self.frame_drawer.draw_alert_overlay(frame, self._alert_level, msg)
                 
-            # Vẽ trạng thái phụ & Score
-            status_text = f"Score: {data['score']} "
-            if is_smiling: status_text += "😊 Smiling "
-            if features.get('is_just_blinking', False): status_text += "👁️ Blink "
-            if data['sunglasses']: status_text += "🕶️ Sunglasses "
-            
-            if status_text:
-                cv2.putText(frame, status_text, (10, frame.shape[0]-20),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            # [REMOVED] Drawing manual text here to avoid overlap
+            # status_text logic moved into draw_status_panel
                            
         except Exception as e:
             logger.error(f"Drawing error: {e}")
@@ -424,11 +431,11 @@ class MonitorController:
             if not self._last_tts_time or (curr_time - self._last_tts_time) > 10.0:
                 hint = ""
                 if score > 40: # Rất buồn ngủ
-                    hint = "DANGER! Please stop the car immediately!"
+                    hint = "Nguy hiểm! Dừng xe ngay lập tức!"
                 elif score > 30:
-                    hint = "You are drowsy. Please wake up."
+                    hint = "Bạn đang buồn ngủ. Hãy tỉnh táo lại."
                 elif self._state == DetectionState.YAWNING:
-                    hint = "You are yawning too much."
+                    hint = "Bạn đang ngáp nhiều. Hãy nghỉ ngơi."
                 
                 if hint:
                     audio_manager.speak(hint)

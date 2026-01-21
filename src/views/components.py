@@ -47,6 +47,12 @@ class StyledLabel(ctk.CTkLabel):
             
         color = text_color if text_color else def_color
         
+        if isinstance(color, tuple):
+             # Tuple BGR detected? Convert to Hex fall-back or force a safe color
+             # CustomTkinter crashes on Tuples.
+             # fallback to default text primary if invalid
+             color = Colors.TEXT_PRIMARY
+
         super().__init__(
             master, 
             font=("Roboto", real_size, font_weight), 

@@ -8,7 +8,11 @@ Main Application Entry Point
 import customtkinter as ctk
 import sys
 import os
+import threading
 from typing import Optional
+from PIL import Image
+import pystray
+from pystray import MenuItem as item
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -191,15 +195,109 @@ class DriverDrowsinessApp:
         audio_manager.stop()
         self._show_login()
     
-    def _on_close(self):
-        """Handle window close"""
+    def _create_image(self):
+        """Create an image for the tray icon"""
+        try:
+            icon_path = os.path.join(os.path.dirname(__file__), 'assets', 'icon.ico')
+            if os.path.exists(icon_path):
+                return Image.open(icon_path)
+        except Exception:
+            pass
+            
+        # Create a basic image if icon doesn't exist or fails to load
+        width = 64
+        height = 64
+        color1 = (52, 152, 219) # Blue
+        color2 = (255, 255, 255) # White
+        image = Image.new('RGB', (width, height), color1)
+        # Draw a simple rectangle/symbol
+        for x in range(width):
+            for y in range(height):
+                if 20 < x < 44 and 20 < y < 44:
+                    image.putpixel((x, y), color2)
+        return image
+
+    def _minimize_to_tray(self):
+        """Hide window and create system tray icon"""
+        self.root.withdraw()
+        
+        image = self._create_image()
+        menu = (
+            item('Restored', self._show_window, default=True),
+            item('Quit', self._quit_app_from_tray)
+        )
+        self.tray_icon = pystray.Icon("driver_drowsiness_system", image, "Driver Drowsiness System", menu)
+        
+        # Run tray icon in a separate thread so it doesn't block Tkinter
+        threading.Thread(target=self.tray_icon.run, daemon=True).start()
+        
+        app_logger.info("Application minimized to system tray")
+
+    def _show_window(self, icon, item):
+        """Show the window again"""
+        self.tray_icon.stop()
+        self.root.after(0, self.root.deiconify)
+        app_logger.info("Application restored from system tray")
+
+    def _quit_app_from_tray(self, icon, item):
+        """Quit application from tray"""
+        # 1. Ngắt kết nối sự kiện đóng cửa sổ ngay lập tức để ngăn vòng lặp
+        self.root.protocol("WM_DELETE_WINDOW", lambda: None)
+        
+        # 2. Dừng icon
+        self.tray_icon.stop()
+        
+        # 3. Thực hiện thoát hoàn toàn
+        def force_exit():
+            try:
+                # Đợi rất ngắn để menu kịp đóng
+                time.sleep(0.1)
+                app_logger.info("Exiting application from tray...")
+                
+                # Cleanup tài nguyên
+                try:
+                    audio_manager.stop()
+                    audio_manager.cleanup()
+                    if self.current_view and hasattr(self.current_view, 'cleanup'):
+                        self.current_view.cleanup()
+                except: 
+                    pass
+                
+                # Hủy cửa sổ Tkinter (nếu còn)
+                try:
+                    self.root.quit() 
+                except:
+                    pass
+
+                # Tắt nóng tiến trình
+                os._exit(0)
+            except:
+                os._exit(0)
+
+        threading.Thread(target=force_exit, daemon=True).start()
+
+    def _perform_exit(self):
+        """Perform actual exit cleanup"""
         app_logger.info("Application closing...")
-        if self.current_view and hasattr(self.current_view, 'cleanup'):
-            self.current_view.cleanup()
-        audio_manager.stop()
-        audio_manager.cleanup()
-        self.root.destroy()
-        sys.exit(0)
+        try:
+            # Ngừng âm thanh và camera trước
+            audio_manager.stop()
+            if self.current_view and hasattr(self.current_view, 'cleanup'):
+                self.current_view.cleanup()
+            
+            # Hủy GUI
+            self.root.quit()
+            self.root.destroy()
+        except Exception:
+            pass
+        finally:
+            # Buộc tắt chương trình và Hủy mọi luồng (Thread)
+            os._exit(0)
+    
+    def _on_close(self):
+        """Handle window close - minimize to tray"""
+        # Instead of closing, minimize to tray
+        self._minimize_to_tray()
 
 def main():
     """Main entry point"""

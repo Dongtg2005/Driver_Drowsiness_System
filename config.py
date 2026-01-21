@@ -66,6 +66,10 @@ class Config:
     ENABLE_NIGHT_MODE = True
     ENABLE_TTS = True
 
+    # Hiển thị cảnh báo trực tiếp lên khung hình camera (overlay lớn)
+    # Đặt False để tránh che khu vực camera; dùng Toast ngoài khung.
+    SHOW_ALERT_OVERLAY_ON_FRAME = False
+
     # Số frame liên tiếp mắt nhắm để báo động (Cảnh báo 3 cấp độ)
     EAR_CONSEC_FRAMES = 20          # Level 1: Warning (~0.7s)
     EAR_CONSEC_FRAMES_LEVEL_2 = 60  # Level 2: Danger (~2s)

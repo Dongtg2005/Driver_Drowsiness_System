@@ -27,6 +27,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifies a plain password against a hashed one."""
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
+import json
+import os
+import base64
+
 # --- Main Controller Class ---
 
 class AuthController:
@@ -37,8 +41,45 @@ class AuthController:
     def __init__(self):
         """Initialize auth controller"""
         self._current_user: Optional[User] = None
+        self._credentials_file = "saved_credentials.json"
+
+    def save_credentials(self, username: str, password: str):
+        """Save credentials to local file (simple encoding)"""
+        try:
+            data = {
+                "username": username,
+                "password": base64.b64encode(password.encode()).decode() 
+            }
+            with open(self._credentials_file, "w") as f:
+                json.dump(data, f)
+        except Exception as e:
+            logger.error(f"Failed to save credentials: {e}")
+
+    def clear_saved_credentials(self):
+        """Remove saved credentials"""
+        if os.path.exists(self._credentials_file):
+            try:
+                os.remove(self._credentials_file)
+            except Exception:
+                pass
+
+    def get_saved_credentials(self) -> Tuple[str, str]:
+        """Get saved credentials if they exist"""
+        if not os.path.exists(self._credentials_file):
+            return "", ""
+        
+        try:
+            with open(self._credentials_file, "r") as f:
+                data = json.load(f)
+                username = data.get("username", "")
+                encoded_pw = data.get("password", "")
+                password = base64.b64decode(encoded_pw.encode()).decode() if encoded_pw else ""
+                return username, password
+        except Exception as e:
+            logger.error(f"Failed to load credentials: {e}")
+            return "", ""
     
-    def login(self, username: str, password: str) -> Tuple[bool, str, Optional[User]]:
+    def login(self, username: str, password: str, remember: bool = False) -> Tuple[bool, str, Optional[User]]:
         """
         Handles user login using SQLAlchemy.
         Returns: (success, message, user_object)
@@ -58,6 +99,13 @@ class AuthController:
                     return False, "Tài khoản đã bị khóa!", None
 
                 self._current_user = user
+                
+                # Handle Remember Me
+                if remember:
+                    self.save_credentials(username, password)
+                else:
+                    self.clear_saved_credentials()
+                    
                 logger.info(f"User logged in: {username}")
                 return True, "Đăng nhập thành công!", user
             else:
@@ -69,6 +117,7 @@ class AuthController:
             return False, "Lỗi kết nối cơ sở dữ liệu!", None
         finally:
             db.close()
+
 
     def register(self, username: str, password: str, confirm_password: str,
                  full_name: str = None, email: str = None) -> Tuple[bool, str]:

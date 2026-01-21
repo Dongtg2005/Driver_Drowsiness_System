@@ -92,3 +92,16 @@ def get_session_history(db: Session, user_id: int, limit: int = 10) -> List[Driv
     return db.query(DrivingSession).filter(
         DrivingSession.user_id == user_id
     ).order_by(DrivingSession.start_time.desc()).limit(limit).all()
+
+def get_ear_history(db: Session, user_id: int, start_date: datetime, end_date: datetime) -> List[Dict]:
+    """
+    Fetches EAR values from alert history for trend analysis.
+    Returns: [{'timestamp': datetime, 'ear': float}, ...]
+    """
+    alerts = db.query(AlertHistory.timestamp, AlertHistory.ear_value).filter(
+        AlertHistory.user_id == user_id,
+        AlertHistory.timestamp.between(start_date, end_date),
+        AlertHistory.ear_value.isnot(None) 
+    ).order_by(AlertHistory.timestamp.asc()).all()
+    
+    return [{'timestamp': a.timestamp, 'ear': a.ear_value} for a in alerts]

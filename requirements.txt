@@ -13,9 +13,18 @@ imutils>=0.5.4
 # Database
 mysql-connector-python==9.0.0
 protobuf==4.25.3
+sqlalchemy==2.0.45
+alembic==1.18.1
+
+# System Tray
+pystray>=0.19.5
+Pillow>=10.0.0
 
 # GUI
 customtkinter==5.2.1
+pyttsx3==2.90
+gTTS==2.5.1
+playsound==1.2.2
 packaging
 Pillow==10.1.0
 

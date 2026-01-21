@@ -21,6 +21,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from src.views.components import (
     Colors, StyledButton, StyledLabel, StyledFrame, MessageBox
 )
+from src.utils.toast_notification import ToastContainer
+from config import config
 from src.controllers.monitor_controller import MonitorController
 from src.models.user_model import User # Import the User model for type hinting
 
@@ -62,6 +64,9 @@ class CameraView(ctk.CTkFrame):
         self.alert_count = 0
         
         self._create_widgets()
+        # Toast container để hiển thị thông báo ngoài khung camera
+        self.toast_container = ToastContainer(self.winfo_toplevel())
+        self._last_toast_time = 0
     
     def _create_widgets(self):
         """Create all widgets"""
@@ -117,6 +122,19 @@ class CameraView(ctk.CTkFrame):
         StyledLabel(
             camera_frame, text="📹 Camera Feed", style="title", size=14
         ).pack(anchor="w", padx=15, pady=(10, 5))
+        
+        # Banner cảnh báo (Nằm trên camera)
+        self.alert_banner = ctk.CTkLabel(
+            camera_frame, 
+            text="", 
+            height=0,
+            width=640, # Kích thước ngang bằng khung camera
+            fg_color="transparent",
+            text_color=Colors.TEXT_WHITE,
+            font=("Roboto", 16, "bold"),
+            corner_radius=5
+        )
+        self.alert_banner.pack(padx=15, pady=(0, 5))
         
         self.camera_label = ctk.CTkLabel(
             camera_frame, text="Camera không hoạt động\nNhấn 'Bắt đầu' để khởi động",
@@ -250,7 +268,7 @@ class CameraView(ctk.CTkFrame):
                     self.stop_btn.configure(state="disabled")
                     self.status_label.configure(text="⚪ Đã dừng")
                     # Xóa ảnh an toàn
-                    self.camera_label.configure(image="", text="Camera đã dừng")
+                    self.camera_label.configure(image=None, text="Camera đã dừng")
             except Exception:
                 pass
                 
@@ -288,6 +306,15 @@ class CameraView(ctk.CTkFrame):
             self.yaw_label.configure(text=f"{result.get('yaw', 0):.1f}°")
             
             alert_level = result.get('alert_level', 0)
+            
+            # CẬP NHẬT BANNER CẢNH BÁO (Nằm ngay trên Camera)
+            if alert_level > 0:
+                msg = result.get('alert_message') or ("⚠️ CẢNH BÁO" if alert_level == 1 else "🚨 NGUY HIỂM")
+                bg_color = Colors.WARNING if alert_level == 1 else Colors.DANGER
+                self.alert_banner.configure(text=msg, height=40, fg_color=bg_color)
+            else:
+                self.alert_banner.configure(text="", height=0, fg_color="transparent")
+
             if alert_level == 0:
                 self.alert_status_label.configure(text="✅ Bình thường", text_color=Colors.SUCCESS)
             elif alert_level == 1:
@@ -297,9 +324,22 @@ class CameraView(ctk.CTkFrame):
                 alert_names = {'DROWSY': 'Buồn ngủ', 'YAWN': 'Ngáp', 'HEAD_DOWN': 'Cúi đầu'}
                 self.alert_status_label.configure(text=f"🚨 {alert_names.get(alert_type, alert_type)}", text_color=Colors.DANGER)
             
+            # Hiển thị toast ngoài khung camera (chỉ khi tắt Overlay trên frame)
             if result.get('alert_triggered', False):
                 self.alert_count += 1
                 self.alert_count_label.configure(text=str(self.alert_count))
+                
+                # Toast VẪN GIỮ làm kệnh phụ trợ, nhưng banner đã làm việc chính
+                if not config.SHOW_ALERT_OVERLAY_ON_FRAME:
+                    # Chống spam toast
+                    now = time.time()
+                    # ... (Logic Toast cũ) ...
+                    if now - self._last_toast_time > 5:
+                        msg = result.get('alert_message') or ("⚠️ Cảnh báo nhẹ" if alert_level == 1 else "🚨 Nguy hiểm")
+                        style = "warning" if alert_level == 1 else "danger"
+                        # Đặt ở "top-right"
+                        self.toast_container.show_toast(message=msg, notification_type=style, position="top-right")
+                        self._last_toast_time = now
         except Exception:
             # Bỏ qua lỗi UI khi widget đang bị hủy
             pass
