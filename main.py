@@ -295,9 +295,9 @@ class DriverDrowsinessApp:
             os._exit(0)
     
     def _on_close(self):
-        """Handle window close - minimize to tray"""
-        # Instead of closing, minimize to tray
-        self._minimize_to_tray()
+        """Handle window close - direct exit per user request"""
+        # Thoát
+        self._perform_exit()
 
 def main():
     """Main entry point"""

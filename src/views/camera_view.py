@@ -62,6 +62,7 @@ class CameraView(ctk.CTkFrame):
         
         # Alert state
         self.alert_count = 0
+        self._is_alert_active = False
         
         self._create_widgets()
         # Toast container để hiển thị thông báo ngoài khung camera
@@ -225,16 +226,48 @@ class CameraView(ctk.CTkFrame):
         return value_label
     
     def _start_monitoring(self):
-        """Start camera monitoring thread"""
+        """Start camera monitoring thread with retry logic"""
+        def _open_camera():
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) # Try DirectShow for faster init on Windows
+                    if not cap.isOpened():
+                         # Fallback if CAP_DSHOW fails or not supported
+                         cap = cv2.VideoCapture(0)
+                    
+                    if cap.isOpened():
+                        return cap
+                    print(f"⚠️ Camera init failed (Attempt {attempt+1}/{max_retries}). Retrying...")
+                    time.sleep(1)
+                except Exception as e:
+                    print(f"⚠️ Camera error: {e}")
+                    time.sleep(1)
+            return None
+
         try:
-            self.cap = cv2.VideoCapture(0)
-            if not self.cap.isOpened():
-                MessageBox.show_error(self, "Lỗi", "Không thể mở camera!")
+            # Ensure previous instance is closed
+            if self.cap:
+                self.cap.release()
+            
+            self.start_btn.configure(state="disabled", text="Đang mở...")
+            self.update_idletasks() # Force UI update
+            
+            # Run camera acquisition in a separate thread to avoid freezing UI
+            # But here we need cap before starting the loop. 
+            # Ideally monitor_thread should handle opening. 
+            # For now, let's keep it simple but with retries.
+            
+            self.cap = _open_camera()
+            
+            if not self.cap or not self.cap.isOpened():
+                self.start_btn.configure(state="normal", text="▶️ Bắt đầu")
+                MessageBox.show_error(self, "Lỗi", "Không thể kết nối Camera sau nhiều lần thử!\nHãy kiểm tra lại kết nối.")
                 return
             
             self.is_running = True
             self.monitor.start_monitoring()  # Start the detection logic and session
-            self.start_btn.configure(state="disabled")
+            self.start_btn.configure(state="disabled", text="▶️ Bắt đầu")
             self.stop_btn.configure(state="normal")
             self.status_label.configure(text="🟢 Đang giám sát")
             
@@ -245,6 +278,7 @@ class CameraView(ctk.CTkFrame):
             self._update_session_timer()
             
         except Exception as e:
+            self.start_btn.configure(state="normal", text="▶️ Bắt đầu")
             MessageBox.show_error(self, "Lỗi", f"Lỗi khởi động camera: {e}")
     
     def _stop_monitoring(self, update_ui=True):
@@ -276,15 +310,27 @@ class CameraView(ctk.CTkFrame):
     
     def _monitoring_loop(self):
         """Main monitoring loop"""
-        while self.is_running and self.cap and self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if not ret:
-                time.sleep(0.01)
-                continue
-            
-            result = self.monitor.process_external_frame(frame)
-            self.after(0, lambda r=result: self._update_ui(r))
-            time.sleep(0.03)
+        try:
+            while self.is_running and self.cap and self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if not ret:
+                    time.sleep(0.01)
+                    continue
+                
+                result = self.monitor.process_external_frame(frame)
+                
+                # Check if thread should stop
+                if not self.is_running:
+                    break
+                    
+                self.after(0, lambda r=result: self._update_ui(r))
+                time.sleep(0.03)
+        except Exception as e:
+            print(f"❌ Camera thread crashed: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self._stop_monitoring()
     
     def _update_ui(self, result: dict):
         """Update UI with monitoring results from the controller"""
@@ -325,9 +371,18 @@ class CameraView(ctk.CTkFrame):
                 self.alert_status_label.configure(text=f"🚨 {alert_names.get(alert_type, alert_type)}", text_color=Colors.DANGER)
             
             # Hiển thị toast ngoài khung camera (chỉ khi tắt Overlay trên frame)
-            if result.get('alert_triggered', False):
-                self.alert_count += 1
-                self.alert_count_label.configure(text=str(self.alert_count))
+            is_triggered = result.get('alert_triggered', False)
+            
+            # [FIXED] Chỉ đếm 1 lần cho mỗi đợt cảnh báo (Rising Edge Detection)
+            if is_triggered:
+                if not self._is_alert_active:
+                    self.alert_count += 1
+                    self.alert_count_label.configure(text=str(self.alert_count))
+                    self._is_alert_active = True
+            else:
+                self._is_alert_active = False
+
+            if is_triggered:
                 
                 # Toast VẪN GIỮ làm kệnh phụ trợ, nhưng banner đã làm việc chính
                 if not config.SHOW_ALERT_OVERLAY_ON_FRAME:
@@ -340,8 +395,10 @@ class CameraView(ctk.CTkFrame):
                         # Đặt ở "top-right"
                         self.toast_container.show_toast(message=msg, notification_type=style, position="top-right")
                         self._last_toast_time = now
-        except Exception:
-            # Bỏ qua lỗi UI khi widget đang bị hủy
+        except Exception as e:
+            # Bỏ qua lỗi UI khi widget đang bị hủy, nhưng in lỗi nếu không phải do hủy
+            if "invalid command name" not in str(e):
+                print(f"❌ UI Update Error: {e}")
             pass
     
     def _update_session_timer(self):

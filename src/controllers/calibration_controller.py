@@ -84,8 +84,11 @@ class CalibrationController:
 
                     # small sleep to yield
                     time.sleep(0.01)
-            except Exception:
+            except Exception as e:
                 # ensure not to crash the thread
+                print(f"❌ Calibration thread error: {e}")
+                import traceback
+                traceback.print_exc()
                 self.is_running = False
 
         self._thread = threading.Thread(target=_loop, daemon=True)
