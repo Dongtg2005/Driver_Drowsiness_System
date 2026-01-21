@@ -46,14 +46,15 @@ class HeadPoseEstimator:
         self._current_roll: float = 0.0
         
         # 3D model points for head pose estimation
-        # These are standard facial landmark positions in 3D space
+        # Standard Generic Face Model (centered at Nose Tip)
+        # Coordinate System matches OpenCV Camera: X-Right, Y-Down, Z-Forward
         self._model_points = np.array([
             (0.0, 0.0, 0.0),             # Nose tip
-            (0.0, -330.0, -65.0),        # Chin
-            (-225.0, 170.0, -135.0),     # Left eye left corner
-            (225.0, 170.0, -135.0),      # Right eye right corner
-            (-150.0, -150.0, -125.0),    # Left mouth corner
-            (150.0, -150.0, -125.0)      # Right mouth corner
+            (0.0, 330.0, -65.0),         # Chin (Below nose = +Y)
+            (-225.0, -170.0, -135.0),    # Left Eye Corner (Camera Left = -X, Above Nose = -Y)
+            (225.0, -170.0, -135.0),     # Right Eye Corner (Camera Right = +X, Above Nose = -Y)
+            (-150.0, 150.0, -125.0),     # Left Mouth Corner (Camera Left = -X, Below Nose = +Y)
+            (150.0, 150.0, -125.0)       # Right Mouth Corner (Camera Right = +X, Below Nose = +Y)
         ], dtype=np.float64)
         
         # Camera matrix (will be updated based on image size)
@@ -96,13 +97,29 @@ class HeadPoseEstimator:
             - Roll: Tilt (positive = tilting right)
         """
         # Get 2D image points
+        # MediaPipe Landmarks:
+        # NOSE_TIP (1)
+        # CHIN (152)
+        # LEFT_EYE_OUTER (263) -> Subject's Left, so CAMERA RIGHT (X+)
+        # RIGHT_EYE_OUTER (33) -> Subject's Right, so CAMERA LEFT (X-)
+        # LEFT_MOUTH (61) -> Subject's Right Corner (Wait, MP 61 is Right Corner?), No, MP convention:
+        # 61 is Subject Right (Camera Left). 291 is Subject Left (Camera Right).
+        
+        # Mapping to 3D Model:
+        # 0: Nose (0, 0) -> MP 1
+        # 1: Chin (0, 330) -> MP 152
+        # 2: Model Left (-225, -170) -> Camera Left -> Subject Right Eye (MP 33)
+        # 3: Model Right (225, -170) -> Camera Right -> Subject Left Eye (MP 263)
+        # 4: Model Mouse Left (-150, 150) -> Camera Left -> Subject Right Mouth (MP 61)
+        # 5: Model Mouse Right (150, 150) -> Camera Right -> Subject Left Mouth (MP 291)
+        
         image_points = np.array([
-            face.pixel_landmarks[mp_config.NOSE_TIP],
-            face.pixel_landmarks[mp_config.CHIN],
-            face.pixel_landmarks[mp_config.LEFT_EYE_OUTER],
-            face.pixel_landmarks[mp_config.RIGHT_EYE_OUTER],
-            face.pixel_landmarks[mp_config.LEFT_MOUTH],
-            face.pixel_landmarks[mp_config.RIGHT_MOUTH]
+            face.pixel_landmarks[mp_config.NOSE_TIP],      # Nose
+            face.pixel_landmarks[mp_config.CHIN],          # Chin
+            face.pixel_landmarks[mp_config.RIGHT_EYE_OUTER], # Model Left (Camera Left) matches Subj Right Eye
+            face.pixel_landmarks[mp_config.LEFT_EYE_OUTER],  # Model Right (Camera Right) matches Subj Left Eye
+            face.pixel_landmarks[mp_config.LEFT_MOUTH],      # Model Mouth Left (Camera Left) matches Subj Right Mouth (61)
+            face.pixel_landmarks[mp_config.RIGHT_MOUTH]      # Model Mouth Right (Camera Right) matches Subj Left Mouth (291)
         ], dtype=np.float64)
         
         # Get camera matrix
