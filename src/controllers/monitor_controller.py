@@ -143,8 +143,12 @@ class MonitorController:
         
         self._is_running = True
         self._is_paused = False
-        self._start_time = time.time()
+        self._start_time = time.time() # [RESTORED]
         self._reset_counters()
+        self._last_alert_type: Optional[str] = None
+
+        # Startup Grace Period
+        self._startup_grace_period = 3.0 # seconds
         
         # Reset detectors to clean state
         self.feature_extractor.reset()
@@ -153,6 +157,23 @@ class MonitorController:
             self._session_id = session_model.start_session(self._user_id)
         logger.log_session_start(self._user_id or 0)
         return True
+
+    def set_user(self, user_id: int) -> None:
+        self._user_id = user_id
+        try:
+            from src.database.db_connection import execute_query
+            # Fetch settings directly using raw SQL
+            rows = execute_query("SELECT * FROM user_settings WHERE user_id = %s", (user_id,), fetch=True)
+            if rows and len(rows) > 0:
+                settings = rows[0]
+                self._ear_threshold = float(settings.get('ear_threshold', config.EAR_THRESHOLD))
+                self._mar_threshold = float(settings.get('mar_threshold', config.MAR_THRESHOLD))
+                self._head_threshold = float(settings.get('head_threshold', config.HEAD_PITCH_THRESHOLD))
+                vol = settings.get('alert_volume', config.ALERT_VOLUME)
+                audio_manager.set_volume(float(vol) if vol is not None else 1.0)
+                logger.info(f"Loaded settings for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error loading user settings: {e}")
     
     def stop_monitoring(self) -> None:
         self._is_running = False
@@ -235,8 +256,8 @@ class MonitorController:
             
             # [CRITICAL UPDATE] LAST KNOWN STATE HEURISTIC
             # Nếu mất mặt nhưng trước đó đầu đang chúi xuống -> Gục đầu (Head Drop)
-            # Ngưỡng -20 là khá sâu (đã tính là gục)
-            if self._current_pitch < -20.0:
+            # Relax threshold to -10.0 to catch cases where face is lost early during the drop
+            if self._current_pitch < -10.0:
                  self._state = DetectionState.HEAD_DOWN
                  self._alert_level = AlertLevel.CRITICAL
                  # Kích hoạt báo động ngay (Không cần đợi counters)
@@ -277,7 +298,7 @@ class MonitorController:
         self._current_yaw = yaw
 
         # 5. Check Drowsiness (Unified Logic via Fusion)
-        fusion_result = self._check_drowsiness_fusion(features, pitch, is_smiling)
+        fusion_result = self._check_drowsiness_fusion(features, pitch, yaw, is_smiling)
 
         # 6. Update Data with Fusion Results
         data.update({
@@ -291,7 +312,8 @@ class MonitorController:
             'is_drowsy': features.get('is_drowsy', False),
             'is_smiling': is_smiling,
             'sunglasses': fusion_result.get('sunglasses', False),
-            'score': fusion_result.get('score', 0)
+            'score': fusion_result.get('score', 0),
+            'distracted': fusion_result.get('distracted', False)
         })
 
         # Thông tin cảnh báo cho UI (Toast/đếm số)
@@ -325,6 +347,7 @@ class MonitorController:
             if is_smiling: secondary_status += "😊 Smiling "
             if features.get('is_just_blinking', False): secondary_status += "👁️ Blink "
             if data['sunglasses']: secondary_status += "🕶️ Sunglasses "
+            if data.get('distracted'): secondary_status += "👀 Distracted "
 
             # Cập nhật lời gọi hàm draw_status_panel với Score và Status
             frame = self.frame_drawer.draw_status_panel(
@@ -352,36 +375,44 @@ class MonitorController:
 
         return frame, data
 
-    def _check_drowsiness_fusion(self, features: Dict, pitch: float, is_smiling: bool) -> Dict:
+    def _check_drowsiness_fusion(self, features: Dict, pitch: float, yaw: float, is_smiling: bool) -> Dict:
         """
         Sử dụng DrowsinessFusion Engine để đánh giá tổng thể.
         """
         is_yawning = (features.get('mar', 0) > self._mar_threshold)
         
         # Cập nhật Fusion Engine
-        # EAR, MAR, Pitch, Yawn status, Timestamp, Smiling Status
+        # EAR, MAR, Pitch, Yawn status, Timestamp, Smiling Status, Yaw
         result = fusion.update(
             ear=features.get('ear', 0.3),
             mar=features.get('mar', 0.0),
             is_yawning=is_yawning,
             pitch=pitch,
             timestamp=time.time(),
-            is_smiling=is_smiling
+            is_smiling=is_smiling,
+            yaw=yaw
         )
         
         # Mapping action từ Fusion sang AlertLevel
         action = result.get('action')
         score = result.get('score', 0)
+        is_distracted = result.get('distracted', False)
         
         # Xác định State & Alert Level
         if action == 'alarm':
             self._alert_level = AlertLevel.ALARM
             # Đoán nguyên nhân chính để set state
-            if is_yawning: self._state = DetectionState.YAWNING
-            elif pitch < -self._head_threshold: self._state = DetectionState.HEAD_DOWN
+            if is_distracted: self._state = DetectionState.DISTRACTED
+            elif is_yawning: self._state = DetectionState.YAWNING
+            # Prioritize HEAD_DOWN if pitch is visibly down (<-12) during alarm, 
+            # as looking down often causes low EAR (squinting/eyelids lowering)
+            elif pitch < -12.0: self._state = DetectionState.HEAD_DOWN
             else: self._state = DetectionState.EYES_CLOSED
         elif action == 'beep':
             self._alert_level = AlertLevel.WARNING
+            if is_distracted: self._state = DetectionState.DISTRACTED
+            elif is_yawning: self._state = DetectionState.YAWNING
+            elif pitch < -12.0: self._state = DetectionState.HEAD_DOWN
         else:
             self._alert_level = AlertLevel.NONE
             self._state = DetectionState.NORMAL
@@ -425,6 +456,10 @@ class MonitorController:
     def _trigger_alert(self, score: int = 0) -> None:
         curr_time = time.time()
         
+        # [NEW] Kiểm tra startup grace period
+        if self._start_time and (curr_time - self._start_time < self._startup_grace_period):
+            return
+
         # TTS Logic (Smart Recommendations)
         if config.ENABLE_TTS:
             # Chỉ nói mỗi 10 giây một lần để tránh spam

@@ -48,9 +48,9 @@ class SmileDetector:
     """
     
     def __init__(self,
-                 smile_mar_min: float = 0.35,       # Giảm min để bắt cười mỉm
-                 smile_mar_max: float = 0.85,       # Tăng max để bắt cười lớn
-                 smile_width_ratio: float = 1.5,    # Giảm ratio (dễ bắt hơn)
+                 smile_mar_min: float = 0.10,       # Giảm min để bắt cười mỉm, cười ngậm miệng (MAR thấp)
+                 smile_mar_max: float = 0.60,       # Giảm max (MAR cao quá là nói/ngáp)
+                 smile_width_ratio: float = 2.2,    # Tăng ratio (Miệng phải bè ngang rõ rệt)
                  speaking_mar_min: float = 0.30,
                  speaking_mar_max: float = 0.55,
                  yawn_mar_min: float = 0.65,

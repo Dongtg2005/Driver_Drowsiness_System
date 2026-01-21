@@ -154,18 +154,19 @@ class PERCLOSDetector:
                 std_ear = np.std(top_samples)
                 
                 # Validation: Mean phải hợp lý
-                if 0.24 < mean_ear < 0.40 and std_ear < 0.08:  # Std không quá cao
+                if 0.15 < mean_ear < 0.40 and std_ear < 0.08:  # Std không quá cao
                     # Tính threshold = 80% của mean
-                    self.ear_threshold = max(0.20, min(0.30, mean_ear * 0.80))
-                    print(f"✅ Adaptive EAR threshold: {self.ear_threshold:.3f} (from {len(top_samples)} samples)")
+                    # [FIXED] Hạ thấp min clamp xuống 0.15 để hỗ trợ mắt nhỏ
+                    self.ear_threshold = max(0.15, min(0.30, mean_ear * 0.80))
+                    print(f"✅ Adaptive EAR threshold: {self.ear_threshold:.3f} (from {len(top_samples)} samples, mean={mean_ear:.3f})")
                 else:
-                    # Data không hợp lý → Dùng default
-                    self.ear_threshold = 0.25
-                    print(f"⚠️  Adaptive calibration failed (mean={mean_ear:.3f}, std={std_ear:.3f}). Using default: 0.25")
+                    # Data không hợp lý → Dùng default an toàn
+                    self.ear_threshold = 0.22 # Giảm default xuống chút
+                    print(f"⚠️  Adaptive calibration failed (mean={mean_ear:.3f}, std={std_ear:.3f}). Using default: 0.22")
             else:
                 # Không đủ data
-                self.ear_threshold = 0.25
-                print(f"⚠️  Not enough calibration data ({len(self._open_ear_samples)} samples). Using default: 0.25")
+                self.ear_threshold = 0.22
+                print(f"⚠️  Not enough calibration data ({len(self._open_ear_samples)} samples). Using default: 0.22")
             
             self._adaptive_phase = False
     

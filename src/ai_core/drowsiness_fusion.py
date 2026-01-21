@@ -56,6 +56,54 @@ class NoddingDetector:
         return False
 
 
+class HeadPoseTracker:
+    """
+    Theo dõi tư thế đầu với Độ trễ (Time Delay) và Vùng an toàn (Safe Zones).
+    
+    Logic:
+    - Vùng an toàn (Safe Zone): Yaw trong khoảng -20 đến +20 độ -> An toàn (nhìn gương/thẳng).
+    - Cảnh báo (Distracted): Yaw < -20 hoặc > 20 (hoặc Pitch < -20).
+    - Độ trễ (Time Delay): Chỉ báo động nếu trạng thái Distracted kéo dài quá 'distraction_threshold' giây.
+    """
+    def __init__(self, safe_yaw_limit: float = 20.0, distraction_threshold: float = 2.0):
+        self.safe_yaw_limit = safe_yaw_limit
+        self.distraction_threshold = distraction_threshold # 2.0s delay
+        
+        self.distraction_start_time: Optional[float] = None
+        self.is_distracted = False
+        
+    def update(self, pitch: float, yaw: float, timestamp: float) -> Tuple[bool, float]:
+        """
+        Cập nhật trạng thái đầu.
+        Returns:
+            (is_distracted_confirmed, duration)
+            - is_distracted_confirmed: True nếu đã vượt quá thời gian cho phép.
+            - duration: Thời gian đã quay đi (giây).
+        """
+        # 1. Kiểm tra xem có đang ở tư thế "Xấu" không?
+        # Pitch < -20: Gật đầu/Cúi đầu (đã xử lý bởi NodDetector, nhưng cứ check thêm)
+        # Yaw > 20 hoặc < -20: Quay trái/phải quá nhiều
+        is_bad_pose = (abs(yaw) > self.safe_yaw_limit) or (pitch < -25.0)
+        
+        if is_bad_pose:
+            if self.distraction_start_time is None:
+                self.distraction_start_time = timestamp
+            
+            duration = timestamp - self.distraction_start_time
+            
+            # Chỉ Confirm là distracted nếu vượt quá threshold (2s)
+            if duration > self.distraction_threshold:
+                self.is_distracted = True
+                return True, duration
+            else:
+                return False, duration
+        else:
+            # Tư thế an toàn -> Reset
+            self.distraction_start_time = None
+            self.is_distracted = False
+            return False, 0.0
+
+
 class DrowsinessFusion:
     """Implements the multimodal drowsiness scoring described by user.
 
@@ -63,6 +111,7 @@ class DrowsinessFusion:
       - eye closed: +1
       - yawn: +3
       - nod: +2
+      - distraction (head): +2 (NEW)
       - normal: -1 (decay, floor 0)
 
     Also supports sunglasses detection (reduces eye weight) and returns actions.
@@ -72,6 +121,7 @@ class DrowsinessFusion:
                  decay_per_frame: int = 1,
                  yawn_weight: int = 3,
                  nod_weight: int = 2,
+                 head_weight: int = 2, # [NEW] Trọng số cho distraction
                  eye_weight: int = 1,
                  sunglasses_window: float = 10.0,
                  sunglasses_zero_frac: float = 0.95):
@@ -79,10 +129,12 @@ class DrowsinessFusion:
         self.decay = decay_per_frame
         self.yawn_weight = yawn_weight
         self.nod_weight = nod_weight
+        self.head_weight = head_weight
         self.eye_weight = eye_weight
 
-        # For nod detection
+        # Detectors
         self.nod_detector = NoddingDetector()
+        self.head_tracker = HeadPoseTracker(safe_yaw_limit=20.0, distraction_threshold=2.0)
 
         # For sunglasses detection: store recent ear samples
         self.ear_history = deque()
@@ -95,7 +147,10 @@ class DrowsinessFusion:
         while self.ear_history and self.ear_history[0][0] < cutoff:
             self.ear_history.popleft()
 
-    def update(self, ear: float, mar: float, is_yawning: bool, pitch: float, timestamp: Optional[float] = None, is_smiling: bool = False) -> dict:
+    def update(self, ear: float, mar: float, is_yawning: bool, pitch: float, 
+               timestamp: Optional[float] = None, is_smiling: bool = False,
+               yaw: float = 0.0) -> dict: # [NEW] Added yaw param
+        
         now = timestamp or time.time()
         self.last_update = now
 
@@ -109,6 +164,9 @@ class DrowsinessFusion:
 
         # nod detection
         nod_detected = self.nod_detector.update(pitch, now)
+        
+        # [NEW] Head Distraction Detection with Delay
+        is_distracted, distraction_duration = self.head_tracker.update(pitch, yaw, now)
 
         # Apply weights, but reduce eye contribution if sunglasses detected or smiling
         eye_contrib = 0
@@ -117,6 +175,8 @@ class DrowsinessFusion:
             eye_contrib = self.eye_weight
         else:
             # if ear below a small threshold consider partial closure
+            # [IMPROVED] Dùng adaptive threshold từ bên ngoài truyền vào thì tốt hơn,
+            # nhưng ở đây tạm dùng hard threshold thấp (0.22) để chắc chắn.
             if ear < 0.22:
                 eye_contrib = self.eye_weight
 
@@ -134,10 +194,17 @@ class DrowsinessFusion:
             self.score += self.yawn_weight
         if nod_detected:
             self.score += self.nod_weight
+            
+        # [NEW] Cộng điểm nếu bị phân tâm quá lâu
+        if is_distracted:
+            # Cộng điểm mỗi frame khi đang distracted
+            self.score += self.head_weight
 
         # If everything normal, decay
         # Nếu đang cười thì cũng tính là "normal" để giảm score nhanh
-        if (eye_contrib == 0 and not is_yawning and not nod_detected) or is_smiling:
+        is_normal = (eye_contrib == 0 and not is_yawning and not nod_detected and not is_distracted)
+        
+        if is_normal or is_smiling:
             decay = self.decay * 3 if is_smiling else self.decay # Cười giúp tỉnh táo -> giảm nhanh hơn
             self.score = max(0, self.score - decay)
 
@@ -155,6 +222,8 @@ class DrowsinessFusion:
             'score': int(self.score),
             'sunglasses': sunglasses,
             'nod': nod_detected,
+            'distracted': is_distracted,       # [NEW]
+            'distraction_duration': distraction_duration, # [NEW]
             'action': action
         }
 
@@ -164,3 +233,4 @@ fusion = DrowsinessFusion()
 
 def get_fusion() -> DrowsinessFusion:
     return fusion
+

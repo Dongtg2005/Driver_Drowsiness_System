@@ -31,7 +31,8 @@ class DetectionState(Enum):
     NORMAL = "NORMAL"
     EYES_CLOSED = "EYES_CLOSED"
     YAWNING = "YAWNING"
-    HEAD_DOWN = "HEAD_DOWN"
+    HEAD_DOWN = "HEAD_DOWN" # Cúi đầu
+    DISTRACTED = "DISTRACTED" # Quay đầu/Mất tập trung
     NO_FACE = "NO_FACE"
     WAITING = "WAITING"   # Thêm trạng thái chờ
 
@@ -145,6 +146,7 @@ class Messages:
     ALERT_EYES_CLOSED = "Mắt nhắm quá lâu - có nguy cơ ngủ gật"
     ALERT_YAWNING = "Ngáp nhiều - có dấu hiệu mệt mỏi"
     ALERT_HEAD_DOWN = "Đầu cúi xuống - hãy tập trung lái xe"
+    ALERT_DISTRACTED = "Mất tập trung - Hãy nhìn thẳng!" # Cảnh báo mới
     
     # Login/Register
     LOGIN_SUCCESS = "Đăng nhập thành công"
