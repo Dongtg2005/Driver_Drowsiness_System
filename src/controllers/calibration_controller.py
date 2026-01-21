@@ -4,7 +4,7 @@ import threading
 import numpy as np
 from src.ai_core.face_mesh import FaceMeshDetector, FaceLandmarks
 from src.ai_core.features import FeatureExtractor
-from src.models.user_model import user_model
+
 from src.ai_core.drawer import frame_drawer
 
 class CalibrationController:
@@ -120,11 +120,18 @@ class CalibrationController:
         # Lưu vào Database
         saved = False
         try:
-            user_model.update_settings(user_id, {'ear_threshold': new_threshold})
+            from src.database.db_connection import execute_query
+            # Update settings using raw SQL
+            # Check if settings exist first, if not insert
+            check = execute_query("SELECT id FROM user_settings WHERE user_id = %s", (user_id,), fetch=True)
+            if check:
+                execute_query("UPDATE user_settings SET ear_threshold = %s WHERE user_id = %s", (float(new_threshold), user_id))
+            else:
+                execute_query("INSERT INTO user_settings (user_id, ear_threshold) VALUES (%s, %s)", (user_id, float(new_threshold)))
             saved = True
-        except Exception:
+        except Exception as e:
             # If DB update fails, still return the computed value
-            print("Cảnh báo: không lưu được vào cơ sở dữ liệu.")
+            print(f"Cảnh báo: không lưu được vào cơ sở dữ liệu: {e}")
 
         print(f"Đã hiệu chuẩn xong! Ngưỡng mới cho User {user_id}: {new_threshold:.3f}")
         # Trả về ngưỡng (float) để UI có thể hiển thị / áp dụng ngay lập tức

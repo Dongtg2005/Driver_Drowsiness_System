@@ -65,15 +65,7 @@ python --version
 python -m pip --version
 ```
 
-<<<<<<< HEAD
-=======
-Nếu máy bạn có nhiều phiên bản Python, có thể dùng `py`:
-```powershell
-py --list
-py -3.11 --version
-```
 
->>>>>>> origin/minhphung
 ### 1. Clone repository
 ```bash
 git clone https://github.com/yourusername/driver-drowsiness-system.git Driver_Drowsiness_System
@@ -87,18 +79,13 @@ cd Driver_Drowsiness_System
 # Tạo venv
 python -m venv venv
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-# Windows (PowerShell)
-=======
-# (Khuyến nghị) nâng pip / setuptools / wheel
+# Nâng cấp pip / setuptools / wheel
 python -m pip install --upgrade pip setuptools wheel
 
 # Nếu bị chặn chạy script: chỉ bật tạm trong phiên hiện tại
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 # Kích hoạt venv
->>>>>>> origin/minhphung
 .\venv\Scripts\Activate.ps1
 ```
 
@@ -107,18 +94,6 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 python -m venv venv
 python -m pip install --upgrade pip setuptools wheel
 venv\Scripts\activate.bat
-<<<<<<< HEAD
-=======
-# (Khuyến nghị) nâng pip / setuptools / wheel
-python -m pip install --upgrade pip setuptools wheel
->>>>>>> 81b5d5a (Add database migrations and backend updates)
-
-# Nếu bị chặn chạy script: chỉ bật tạm trong phiên hiện tại
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-
-# Kích hoạt venv
-.\venv\Scripts\Activate.ps1
-=======
 ```
 
 **macOS/Linux:**
@@ -126,7 +101,6 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 python3 -m venv venv
 python3 -m pip install --upgrade pip setuptools wheel
 source venv/bin/activate
->>>>>>> origin/minhphung
 ```
 
 ### 3. Cài đặt dependencies
@@ -143,58 +117,21 @@ DB_NAME=drowsiness_db
 DB_USER=root
 DB_PASSWORD=
 ```
-<<<<<<< HEAD
-<<<<<<< HEAD
-> ⚠️ Thay `your_password` bằng mật khẩu MySQL của bạn
-=======
-> Nếu MySQL của bạn có đặt mật khẩu cho user `root`, hãy điền vào `DB_PASSWORD`.
->>>>>>> origin/minhphung
 
 ### 5. Cấu hình Database MySQL
 
-> Bạn có thể dùng **MySQL Server** hoặc **XAMPP (MySQL/MariaDB)**. Mặc định cấu hình trong [config.py](config.py) dùng `DB_USER=root` và `DB_PASSWORD` rỗng.
-
-#### Cách 1: Dùng Command Line
-```bash
-# Tạo database
-mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS drowsiness_db;"
-
-# Import schema và dữ liệu
-mysql -u root -p drowsiness_db < database.sql
-```
-
-#### Cách 2: Dùng MySQL Workbench
-```sql
-CREATE DATABASE IF NOT EXISTS drowsiness_db;
-USE drowsiness_db;
-SOURCE /path/to/database.sql;
-```
-=======
-> Nếu MySQL của bạn có đặt mật khẩu cho user `root`, hãy điền vào `DB_PASSWORD`.
-
-### 5. Cấu hình Database MySQL
-
-Hệ thống sử dụng **Alembic** để quản lý và cập nhật cấu trúc database một cách tự động, thay thế cho việc chạy file `.sql` thủ công.
+Hệ thống sử dụng **Alembic** để quản lý và cập nhật cấu trúc database một cách tự động.
 
 #### Bước 1: Tạo Database Rỗng
-Đầu tiên, bạn cần tạo một database rỗng trong MySQL. Bạn có thể dùng command line hoặc một công cụ như MySQL Workbench/DBeaver.
-
 ```bash
-# Dùng command line để tạo database
 mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS drowsiness_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 ```
 
 #### Bước 2: Áp dụng Cấu trúc (Migration)
-Sau khi có database rỗng, hãy chạy lệnh sau từ thư mục gốc của dự án để Alembic tự động tạo tất cả các bảng cần thiết.
-
-> **Lưu ý:** Đảm bảo môi trường ảo (`venv`) của bạn đã được kích hoạt trước khi chạy lệnh.
-
 ```bash
-# Lệnh này sẽ đọc các file cấu hình và tự động cập nhật database
+# Đảm bảo venv đã active
 python -m alembic upgrade head
 ```
-Thế là xong! Alembic sẽ lo phần còn lại. Bạn không cần phải import file `database.sql` nữa.
->>>>>>> 81b5d5a (Add database migrations and backend updates)
 
 > **Windows lưu ý:** nếu dùng Workbench, hãy chọn đúng file `database.sql` trong thư mục dự án.
 
@@ -203,20 +140,11 @@ Thế là xong! Alembic sẽ lo phần còn lại. Bạn không cần phải imp
 python main.py
 ```
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> origin/minhphung
 ### 7. Thoát môi trường ảo
 ```bash
 deactivate
 ```
 
-<<<<<<< HEAD
->>>>>>> 81b5d5a (Add database migrations and backend updates)
-=======
->>>>>>> origin/minhphung
 ### 7. Đăng nhập test
 ```
 Username: admin

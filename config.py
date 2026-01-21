@@ -78,6 +78,14 @@ class Config:
     HEAD_PITCH_THRESHOLD = 35.0 # Cúi đầu (góc âm = cúi đầu)
     HEAD_YAW_THRESHOLD = 40.0   # Quay trái/phải
 
+    # ----------------------------------
+    # 6. CAMERA SETTINGS
+    # ----------------------------------
+    CAMERA_INDEX = 0
+    CAMERA_WIDTH = 640
+    CAMERA_HEIGHT = 480
+    TARGET_FPS = 30
+
 # Global Config Instance
 config = Config()
 

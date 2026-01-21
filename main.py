@@ -29,9 +29,6 @@ from src.views.register_view import RegisterView
 from src.views.camera_view import CameraView
 from src.views.dashboard_view import DashboardView
 from src.views.settings_view import SettingsView
-<<<<<<< HEAD
-from src.views.components import Colors
-=======
 from src.views.calibration_view import CalibrationView
 from src.views.components import Colors, MessageBox
 

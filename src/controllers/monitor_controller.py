@@ -98,13 +98,19 @@ class MonitorController:
     def set_user(self, user_id: int) -> None:
         self._user_id = user_id
         try:
-            from src.models.user_model import user_model
-            settings = user_model.get_user_settings(user_id)
-            if settings:
-                self._ear_threshold = settings.get('ear_threshold', config.EAR_THRESHOLD)
-                self._mar_threshold = settings.get('mar_threshold', config.MAR_THRESHOLD)
-                self._head_threshold = settings.get('head_threshold', config.HEAD_PITCH_THRESHOLD)
-                audio_manager.set_volume(settings.get('alert_volume', config.ALERT_VOLUME))
+            from src.database.db_connection import execute_query
+            # Fetch settings directly using raw SQL
+            rows = execute_query("SELECT * FROM user_settings WHERE user_id = %s", (user_id,), fetch=True)
+            if rows and len(rows) > 0:
+                settings = rows[0]
+                self._ear_threshold = float(settings.get('ear_threshold', config.EAR_THRESHOLD))
+                self._mar_threshold = float(settings.get('mar_threshold', config.MAR_THRESHOLD))
+                self._head_threshold = float(settings.get('head_threshold', config.HEAD_PITCH_THRESHOLD))
+                # Note: db column might be 'alert_volume' or similar. 
+                # If using ORM it matches model attr. In raw SQL it matches DB column.
+                # Assuming 'alert_volume' based on previous code.
+                vol = settings.get('alert_volume', config.ALERT_VOLUME)
+                audio_manager.set_volume(float(vol) if vol is not None else 1.0)
                 logger.info(f"Loaded settings for user {user_id}")
         except Exception as e:
             logger.error(f"Error loading user settings: {e}")
