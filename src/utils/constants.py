@@ -84,6 +84,7 @@ class Colors:
     WARNING = "#E9B604"
     WARNING_HEX = "#E9B604"
     INFO = "#0DCAF0"
+    TEXT_WHITE = "#ffffff" # Alias for explicit white
     TEXT_PRIMARY = "#ffffff"
     TEXT_SECONDARY = "#a0a0a0"
     TEXT_MUTED = "#666666"

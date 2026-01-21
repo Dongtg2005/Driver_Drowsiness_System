@@ -13,15 +13,26 @@ import threading
 import time
 from typing import Optional
 import pyttsx3
+from gtts import gTTS
+import tempfile
+try:
+    from playsound import playsound
+    G_TTS_AVAILABLE = True
+except ImportError:
+    G_TTS_AVAILABLE = False
+    print("⚠️ playsound not installed. Online TTS disabled.")
 
 # Use winsound for Windows (built-in, no install needed)
 try:
     import winsound
     AUDIO_AVAILABLE = True
 except ImportError:
-    AUDIO_AVAILABLE = False
-    print("⚠️ winsound not available. Audio alerts will be disabled.")
-
+    import platform
+    if platform.system() == "Windows":
+        AUDIO_AVAILABLE = False
+        print("⚠️ winsound not available. Audio alerts will be disabled.")
+    else:
+        AUDIO_AVAILABLE = False # Linux/Mac support needs other libs
 
 class AudioManager:
     """
@@ -47,17 +58,41 @@ class AudioManager:
         self._enabled = True
         self._stop_flag = False
         self._current_thread: Optional[threading.Thread] = None
+        self.use_online_tts = False # Default to offline
         
         # TTS Engine
         try:
             self.tts_engine = pyttsx3.init()
             self.tts_engine.setProperty('rate', 150)
+            
+            # Auto-detect Vietnamese voice
+            image_voices = self.tts_engine.getProperty('voices')
+            vi_voice_id = None
+            for voice in image_voices:
+                # Common IDs for Vietnamese: 'vi', 'vietnam', 'an' (Microsoft An)
+                if 'vietnam' in voice.name.lower() or 'vi_vn' in voice.id.lower():
+                    vi_voice_id = voice.id
+                    break
+            
+            if vi_voice_id:
+                self.tts_engine.setProperty('voice', vi_voice_id)
+                self.language = "vi"
+                print(f"🎤 Default TTS Voice set to: {vi_voice_id}")
+            else:
+                 # Local Vietnamese voice NOT found. Switch to Online TTS (gTTS)
+                 print("⚠️ No local Vietnamese voice found. Switching to Google TTS (Online).")
+                 self.use_online_tts = True
+                 self.language = "vi"
+            
             self.tts_available = True
         except Exception as e:
             print(f"⚠️ TTS Init Error: {e}")
             self.tts_available = False
         
         print("✅ Audio system initialized (Windows native + TTS)")
+
+    # ... (rest of class)
+
     
     def play_alert(self, level: int, loop: bool = False) -> None:
         """
@@ -129,20 +164,58 @@ class AudioManager:
         self.play_alert(3, loop=loop)
     
     def speak(self, text: str) -> None:
-        """Speak text using TTS engine (Async)"""
+        """Speak text using TTS engine (Async) - supports Offline & Online"""
         if not self._enabled or not self.tts_available:
             return
             
-        def _speak_thread():
+        def _speak_online():
+            if not G_TTS_AVAILABLE:
+                print("⚠️ gTTS requested but not available.")
+                return
+            try:
+                # Generate MP3 using Google TTS
+                tts = gTTS(text=text, lang='vi')
+                with tempfile.NamedTemporaryFile(delete=True) as fp:
+                    temp_filename = fp.name + ".mp3"
+                
+                tts.save(temp_filename)
+                # Play audio
+                playsound(temp_filename)
+                # Cleanup
+                try:
+                    os.remove(temp_filename)
+                except: pass
+            except Exception as e:
+                print(f"Online TTS Error: {e}")
+
+        # Capture the voice ID detected in __init__
+        target_voice_id = None
+        try:
+             target_voice_id = self.tts_engine.getProperty('voice')
+        except: pass
+
+        def _speak_offline():
             try:
                 # Re-initialize engine in thread to avoid COM errors
                 engine = pyttsx3.init()
+                
+                # Apply the detected Vietnamese voice if available
+                if target_voice_id:
+                     engine.setProperty('voice', target_voice_id)
+                
+                # Slow down slightly for clarity
+                engine.setProperty('rate', 140) 
+                
                 engine.say(text)
                 engine.runAndWait()
             except Exception as e:
-                print(f"TTS Error: {e}")
+                print(f"Offline TTS Error: {e}")
 
-        threading.Thread(target=_speak_thread, daemon=True).start()
+        # Select Strategy
+        if self.use_online_tts and G_TTS_AVAILABLE:
+             threading.Thread(target=_speak_online, daemon=True).start()
+        else:
+             threading.Thread(target=_speak_offline, daemon=True).start()
 
     def stop(self) -> None:
         """Stop all sounds"""
