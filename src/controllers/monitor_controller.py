@@ -94,6 +94,11 @@ class MonitorController:
         
         # Alert tracking
         self._last_alert_type: Optional[str] = None
+        
+        # Sunglasses detection state tracking
+        self._sunglasses_detected = False
+        self._last_sunglasses_notification_time = 0.0
+        self._sunglasses_notification_cooldown = 30.0  # 30 giây cooldown
     
     def set_user(self, user_id: int) -> None:
         self._user_id = user_id
@@ -299,6 +304,27 @@ class MonitorController:
 
         # 5. Check Drowsiness (Unified Logic via Fusion)
         fusion_result = self._check_drowsiness_fusion(features, pitch, yaw, is_smiling)
+        
+        # 5.1. Handle Sunglasses Detection
+        sunglasses_detected = fusion_result.get('sunglasses', False)
+        if sunglasses_detected and not self._sunglasses_detected:
+            # First time detection
+            current_time = time.time()
+            if current_time - self._last_sunglasses_notification_time > self._sunglasses_notification_cooldown:
+                logger.warning("⚠️ [SUNGLASSES DETECTED] Switching to behavior monitoring mode (Eye tracking disabled, focusing on Head & Mouth)")
+                # Voice notification (non-blocking)
+                if config.ENABLE_TTS_ALERTS:
+                    threading.Thread(
+                        target=audio_manager.speak,
+                        args=("Phát hiện kính râm. Chuyển sang chế độ giám sát hành vi.",),
+                        daemon=True
+                    ).start()
+                self._last_sunglasses_notification_time = current_time
+            self._sunglasses_detected = True
+        elif not sunglasses_detected and self._sunglasses_detected:
+            # No longer detected
+            logger.info("✅ [SUNGLASSES CLEARED] Resuming normal eye tracking mode")
+            self._sunglasses_detected = False
 
         # 6. Update Data with Fusion Results
         data.update({
@@ -357,6 +383,10 @@ class MonitorController:
                 score=data['score'], 
                 secondary_status=secondary_status
             )
+            
+            # Vẽ Sunglasses Warning Banner (nếu phát hiện)
+            if data.get('sunglasses', False):
+                frame = self.frame_drawer.draw_sunglasses_warning(frame, alpha=0.7)
             
             # Vẽ Alert Overlay (nếu có) và được bật trong cấu hình
             if self._alert_level != AlertLevel.NONE and config.SHOW_ALERT_OVERLAY_ON_FRAME:

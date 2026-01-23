@@ -246,6 +246,36 @@ class FrameDrawer:
         
         return image
 
+    def draw_sunglasses_warning(self, image: np.ndarray, alpha: float = 0.8) -> np.ndarray:
+        """
+        Vẽ banner cảnh báo kính râm ở phía trên frame.
+        """
+        h, w = image.shape[:2]
+        banner_height = 50
+        
+        # Create semi-transparent orange overlay
+        overlay = image.copy()
+        cv2.rectangle(overlay, (0, 0), (w, banner_height), (0, 140, 255), -1)  # Orange BGR
+        image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+        
+        # Draw icon and text
+        text = "🕶️ PHAT HIEN KINH RAM - CHE DO GIAM SAT HANH VI"
+        font_scale = 0.6
+        thickness = 2
+        (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+        
+        # Center text
+        x = (w - text_width) // 2
+        y = (banner_height + text_height) // 2
+        
+        # Draw text with shadow for better visibility
+        cv2.putText(image, text, (x + 2, y + 2), cv2.FONT_HERSHEY_SIMPLEX, 
+                   font_scale, (0, 0, 0), thickness + 1, cv2.LINE_AA)  # Shadow
+        cv2.putText(image, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 
+                   font_scale, (255, 255, 255), thickness, cv2.LINE_AA)  # White text
+        
+        return image
+
     def draw_status_panel(self, image: np.ndarray, ear: float, mar: float,
                           pitch: float, yaw: float, fps: float,
                           alert_level: AlertLevel = AlertLevel.NONE,
