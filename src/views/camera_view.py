@@ -345,6 +345,7 @@ class CameraView(ctk.CTkFrame):
                 img = Image.fromarray(frame_rgb)
                 photo = ctk.CTkImage(light_image=img, dark_image=img, size=(640, 480))
                 self.camera_label.configure(image=photo, text="")
+                self.camera_label._image = photo # Keep reference to prevent GC
 
             self.ear_label.configure(text=f"{result.get('ear', 0):.3f}")
             self.mar_label.configure(text=f"{result.get('mar', 0):.3f}")

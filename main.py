@@ -9,7 +9,11 @@ import customtkinter as ctk
 import sys
 import os
 import threading
+import warnings
 from typing import Optional
+
+# Suppress the protobuf SymbolDatabase.GetPrototype() deprecation warning
+warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.symbol_database")
 from PIL import Image
 import pystray
 from pystray import MenuItem as item

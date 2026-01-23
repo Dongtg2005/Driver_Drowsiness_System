@@ -80,7 +80,7 @@ class ToastNotification(ctk.CTkFrame):
             height: Toast height in pixels
             on_close: Callback function when toast closes
         """
-        super().__init__(master, corner_radius=10, fg_color="#000000")
+        super().__init__(master, corner_radius=10, fg_color="#000000", width=width, height=height)
         
         self.master = master
         self.message = message
@@ -230,7 +230,7 @@ class ToastNotification(ctk.CTkFrame):
         y = pos["start_y"] + (pos["end_y"] - pos["start_y"]) * eased_progress
         
         # Place the widget
-        self.place(x=int(x), y=int(y), width=self.width, height=self.height)
+        self.place(x=int(x), y=int(y))
         
         # Continue animation if not finished
         if self.animation_frame < self.max_animation_frames:
@@ -275,7 +275,7 @@ class ToastNotification(ctk.CTkFrame):
             
             # Update height (shrinks)
             if current_height > 0:
-                self.place(width=self.width, height=current_height)
+                self.configure(height=current_height)
             
             self.after(20, lambda: self._animate_out(frame + 1))
         else:

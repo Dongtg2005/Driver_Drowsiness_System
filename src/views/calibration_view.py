@@ -92,6 +92,7 @@ class CalibrationView(ctk.CTkFrame):
             img = Image.fromarray(img)
             self._imgtk = ctk.CTkImage(light_image=img, dark_image=img, size=(640, 480))
             self.camera_frame.configure(image=self._imgtk)
+            self.camera_frame._image = self._imgtk # Keep reference
 
         # --- VOICE GUIDANCE ---
         # Milestones: 0.2 (20%), 0.5 (50%), 0.8 (80%)
