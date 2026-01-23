@@ -354,7 +354,16 @@ class CameraView(ctk.CTkFrame):
             alert_level = result.get('alert_level', 0)
             
             # CẬP NHẬT BANNER CẢNH BÁO (Nằm ngay trên Camera)
-            if alert_level > 0:
+            sunglasses = result.get('sunglasses', False)
+            
+            if sunglasses:
+                # Ưu tiên hiển thị cảnh báo kính râm
+                self.alert_banner.configure(
+                    text="🕶️ PHÁT HIỆN KÍNH RÂM - Chế độ giám sát hành vi", 
+                    height=40, 
+                    fg_color=(255, 140, 0)  # Orange
+                )
+            elif alert_level > 0:
                 msg = result.get('alert_message') or ("⚠️ CẢNH BÁO" if alert_level == 1 else "🚨 NGUY HIỂM")
                 bg_color = Colors.WARNING if alert_level == 1 else Colors.DANGER
                 self.alert_banner.configure(text=msg, height=40, fg_color=bg_color)
