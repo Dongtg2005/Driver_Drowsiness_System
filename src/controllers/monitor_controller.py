@@ -349,7 +349,11 @@ class MonitorController:
             'is_smiling': is_smiling,
             'sunglasses': fusion_result.get('sunglasses', False),
             'score': fusion_result.get('score', 0),
-            'distracted': fusion_result.get('distracted', False)
+            'distracted': fusion_result.get('distracted', False),
+            'gaze_distracted': fusion_result.get('gaze_distracted', False),
+            'gaze_direction': features.get('gaze_direction', 'center'),
+            'gaze_ratio': features.get('gaze_ratio', (0.0, 0.0)),
+            'gaze_duration': fusion_result.get('gaze_duration', 0.0)
         })
 
         # Thông tin cảnh báo cho UI (Toast/đếm số)
@@ -369,7 +373,11 @@ class MonitorController:
             yawning = self._state == DetectionState.YAWNING
             
             frame = self.frame_drawer.draw_detected_outlines(frame, face)
-            frame = self.frame_drawer.draw_eyes(frame, face, closed=eyes_closed)
+            # Draw eyes with gaze tracking visualization
+            gaze_ratio = data.get('gaze_ratio', (0.0, 0.0))
+            draw_gaze = data.get('gaze_distracted', False) or abs(gaze_ratio[0]) > 0.2 or abs(gaze_ratio[1]) > 0.2
+            frame = self.frame_drawer.draw_eyes(frame, face, closed=eyes_closed, 
+                                               draw_iris=draw_gaze, gaze_ratio=gaze_ratio)
             # [REMOVED] Mouth Frame per user request
             # frame = self.frame_drawer.draw_mouth(frame, face, yawning=yawning)
             
@@ -384,19 +392,31 @@ class MonitorController:
             if features.get('is_just_blinking', False): secondary_status += "👁️ Blink "
             if data['sunglasses']: secondary_status += "🕶️ Sunglasses "
             if data.get('distracted'): secondary_status += "👀 Distracted "
+            if data.get('gaze_distracted'): secondary_status += "👁️ Gaze Off "
 
-            # Cập nhật lời gọi hàm draw_status_panel với Score và Status
+            # Cập nhật lời gọi hàm draw_status_panel với Score và Status + Gaze
             frame = self.frame_drawer.draw_status_panel(
                 frame, self._current_ear, self._current_mar,
                 self._current_pitch, self._current_yaw, self._fps,
                 self._alert_level, data['perclos'], str(self._state),
                 score=data['score'], 
-                secondary_status=secondary_status
+                secondary_status=secondary_status,
+                gaze_direction=data.get('gaze_direction'),
+                gaze_duration=data.get('gaze_duration', 0.0)
             )
             
             # Vẽ Sunglasses Warning Banner (nếu phát hiện)
             if data.get('sunglasses', False):
                 frame = self.frame_drawer.draw_sunglasses_warning(frame, alpha=0.7)
+            
+            # Vẽ Gaze Distraction Warning (nếu phát hiện nhìn lệch khỏi đường)
+            if data.get('gaze_distracted', False):
+                frame = self.frame_drawer.draw_gaze_distraction_warning(
+                    frame, 
+                    data.get('gaze_direction', 'off_road'),
+                    data.get('gaze_duration', 0.0),
+                    alpha=0.75
+                )
             
             # Vẽ Alert Overlay (nếu có) và được bật trong cấu hình
             if self._alert_level != AlertLevel.NONE and config.SHOW_ALERT_OVERLAY_ON_FRAME:
@@ -441,6 +461,7 @@ class MonitorController:
         
         # Cập nhật Fusion Engine
         # EAR, MAR, Pitch, Yawn status, Timestamp, Smiling Status, Yaw, Sunglasses Mode (manual OR auto)
+        # + Gaze Distraction (NEW)
         result = fusion.update(
             ear=features.get('ear', 0.3),
             mar=features.get('mar', 0.0),
@@ -449,19 +470,24 @@ class MonitorController:
             timestamp=time.time(),
             is_smiling=is_smiling,
             yaw=yaw,
-            manual_sunglasses_mode=final_sunglasses_mode
+            manual_sunglasses_mode=final_sunglasses_mode,
+            is_gaze_distracted=features.get('is_gaze_distracted', False),
+            gaze_duration=features.get('gaze_duration', 0.0)
         )
         
         # Mapping action từ Fusion sang AlertLevel
         action = result.get('action')
         score = result.get('score', 0)
         is_distracted = result.get('distracted', False)
+        is_gaze_distracted = result.get('gaze_distracted', False)
         
         # Xác định State & Alert Level
         if action == 'alarm':
             self._alert_level = AlertLevel.ALARM
             # Đoán nguyên nhân chính để set state
-            if is_distracted: self._state = DetectionState.DISTRACTED
+            # Prioritize gaze distraction first (most immediate danger)
+            if is_gaze_distracted: self._state = DetectionState.DISTRACTED
+            elif is_distracted: self._state = DetectionState.DISTRACTED
             elif is_yawning: self._state = DetectionState.YAWNING
             # Prioritize HEAD_DOWN if pitch is visibly down (<-12) during alarm, 
             # as looking down often causes low EAR (squinting/eyelids lowering)
@@ -469,7 +495,8 @@ class MonitorController:
             else: self._state = DetectionState.EYES_CLOSED
         elif action == 'beep':
             self._alert_level = AlertLevel.WARNING
-            if is_distracted: self._state = DetectionState.DISTRACTED
+            if is_gaze_distracted: self._state = DetectionState.DISTRACTED
+            elif is_distracted: self._state = DetectionState.DISTRACTED
             elif is_yawning: self._state = DetectionState.YAWNING
             elif pitch < -12.0: self._state = DetectionState.HEAD_DOWN
         else:

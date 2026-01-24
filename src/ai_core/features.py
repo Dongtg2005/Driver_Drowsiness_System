@@ -19,6 +19,7 @@ from src.utils.math_helpers import euclidean_distance, moving_average
 from src.ai_core.face_mesh import FaceLandmarks
 from src.ai_core.perclos_detector import get_perclos_detector
 from src.ai_core.smile_detector import get_smile_detector
+from src.ai_core.gaze_tracker import get_gaze_tracker
 from src.utils.logger import logger
 
 
@@ -61,6 +62,7 @@ class FeatureExtractor:
         # Detectors
         self.perclos_detector = get_perclos_detector()
         self.smile_detector = get_smile_detector()
+        self.gaze_tracker = get_gaze_tracker()
     
     def calculate_ear(self, eye_points: List[Tuple[int, int]]) -> float:
         """
@@ -276,7 +278,12 @@ class FeatureExtractor:
                 self._current_mar
             )
             
-            # 5. Trả về đầy đủ thông tin
+            # 5. Gaze Tracking (theo dõi hướng nhìn)
+            gaze_ratio = self.gaze_tracker.calculate_gaze_ratios(face)
+            is_gaze_distracted, gaze_duration, gaze_direction = self.gaze_tracker.update_distraction_state(gaze_ratio)
+            gaze_info = self.gaze_tracker.get_gaze_info()
+            
+            # 6. Trả về đầy đủ thông tin
             return {
                 # Raw values
                 'ear': self._current_ear,
@@ -299,7 +306,14 @@ class FeatureExtractor:
                 
                 # Smile Detection
                 'is_smiling': is_smiling,
-                'smile_confidence': smile_confidence
+                'smile_confidence': smile_confidence,
+                
+                # Gaze Tracking
+                'gaze_ratio': gaze_ratio,
+                'gaze_direction': gaze_direction,
+                'is_gaze_distracted': is_gaze_distracted,
+                'gaze_duration': gaze_duration,
+                'gaze_info': gaze_info
             }
         
         except Exception as e:
@@ -322,7 +336,12 @@ class FeatureExtractor:
             'is_drowsy': False,
             'is_just_blinking': False,
             'is_smiling': False,
-            'smile_confidence': 0.0
+            'smile_confidence': 0.0,
+            'gaze_ratio': (0.0, 0.0),
+            'gaze_direction': 'center',
+            'is_gaze_distracted': False,
+            'gaze_duration': 0.0,
+            'gaze_info': {}
         }
     
     def reset(self) -> None:
@@ -344,6 +363,8 @@ class FeatureExtractor:
             self.perclos_detector.reset()
         if self.smile_detector:
             self.smile_detector.reset()
+        if self.gaze_tracker:
+            self.gaze_tracker.reset()
     
     def get_current_state(self) -> Dict[str, float]:
         """

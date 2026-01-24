@@ -93,9 +93,15 @@ class FrameDrawer:
     
     def draw_eyes(self, image: np.ndarray, face: FaceLandmarks,
                   color: Tuple[int, int, int] = Colors.YELLOW,
-                  closed: bool = False) -> np.ndarray:
+                  closed: bool = False,
+                  draw_iris: bool = False,
+                  gaze_ratio: Optional[Tuple[float, float]] = None) -> np.ndarray:
         """
         Vẽ viền mắt. Đổi màu đỏ nếu mắt nhắm.
+        
+        Args:
+            draw_iris: Có vẽ iris centers (cho gaze tracking)
+            gaze_ratio: (ratio_x, ratio_y) để vẽ gaze vector
         """
         draw_color = Colors.RED if closed else Colors.GREEN
         
@@ -108,6 +114,35 @@ class FrameDrawer:
         right_eye_points = [face.pixel_landmarks[i] for i in mp_config.RIGHT_EYE]
         right_eye_array = np.array(right_eye_points, dtype=np.int32)
         cv2.polylines(image, [right_eye_array], True, draw_color, 1)
+        
+        # Draw iris centers and gaze vector if requested
+        if draw_iris and len(face.pixel_landmarks) >= 478:
+            # Draw iris centers (landmarks 468 and 473)
+            left_iris_center = face.pixel_landmarks[468]
+            right_iris_center = face.pixel_landmarks[473]
+            
+            cv2.circle(image, left_iris_center, 2, Colors.CYAN, -1)
+            cv2.circle(image, right_iris_center, 2, Colors.CYAN, -1)
+            
+            # Draw gaze direction arrow if gaze_ratio provided
+            if gaze_ratio is not None:
+                ratio_x, ratio_y = gaze_ratio
+                
+                # Calculate arrow direction based on gaze ratio
+                # Arrow length based on how far from center
+                arrow_length = 30
+                
+                # Left eye arrow
+                left_end_x = int(left_iris_center[0] + ratio_x * arrow_length)
+                left_end_y = int(left_iris_center[1] + ratio_y * arrow_length)
+                cv2.arrowedLine(image, left_iris_center, (left_end_x, left_end_y),
+                              Colors.YELLOW, 2, tipLength=0.3)
+                
+                # Right eye arrow
+                right_end_x = int(right_iris_center[0] + ratio_x * arrow_length)
+                right_end_y = int(right_iris_center[1] + ratio_y * arrow_length)
+                cv2.arrowedLine(image, right_iris_center, (right_end_x, right_end_y),
+                              Colors.YELLOW, 2, tipLength=0.3)
         
         return image
     
@@ -282,7 +317,9 @@ class FrameDrawer:
                           perclos: float = 0.0,
                           eye_state: str = "OPEN",
                           score: int = 0,
-                          secondary_status: str = "") -> np.ndarray:
+                          secondary_status: str = "",
+                          gaze_direction: Optional[str] = None,
+                          gaze_duration: float = 0.0) -> np.ndarray:
         """
         Vẽ giao diện HUD Sci-Fi thay thế bảng thông số cũ, chia 4 góc.
         """
@@ -328,12 +365,28 @@ class FrameDrawer:
         cv2.putText(image, f"YAW:   {yaw:.1f}", (x_start, y_start + gap), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, yaw_color, 2, cv2.LINE_AA)
         
+        # Gaze Direction (NEW)
+        if gaze_direction:
+            gaze_color = Colors.GREEN
+            gaze_text = f"GAZE: {gaze_direction.upper()}"
+            
+            # Color based on direction
+            if gaze_direction in ['down', 'left', 'right', 'off_road']:
+                gaze_color = Colors.RED if gaze_duration > 1.0 else Colors.YELLOW
+                if gaze_duration > 0.0:
+                    gaze_text += f" ({gaze_duration:.1f}s)"
+            
+            cv2.putText(image, gaze_text, (x_start, y_start + gap*2), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, gaze_color, 2, cv2.LINE_AA)
+            score_y = y_start + gap*3  # Adjust score position
+        else:
+            score_y = y_start + gap*2
+        
         # [MOVED FROM BOTTOM-LEFT] Score - Dời lên trên góc trái
         score_color = (255, 255, 255) # White
         if score > 30: score_color = (0, 255, 255) # Yellow
         if score > 60: score_color = (0, 0, 255) # Red
-        # Tính toán vị trí Y để SCORE nằm ngay dưới YAW
-        score_y = y_start + gap*2
+        # Tính toán vị trí Y để SCORE nằm ngay dưới YAW (hoặc GAZE nếu có)
         cv2.putText(image, f"SCORE: {score}", (x_start, score_y), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, score_color, 2, cv2.LINE_AA)
                    
@@ -361,6 +414,81 @@ class FrameDrawer:
         cv2.putText(image, fps_str, (w - fw - 20, 80), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
                    
+        return image
+    
+    def draw_gaze_distraction_warning(self, image: np.ndarray, 
+                                      gaze_direction: str,
+                                      duration: float,
+                                      alpha: float = 0.8) -> np.ndarray:
+        """
+        Vẽ cảnh báo khi phát hiện hướng nhìn lệch khỏi đường.
+        
+        Args:
+            gaze_direction: Hướng nhìn hiện tại (left, right, down, up)
+            duration: Thời gian đã nhìn lệch (giây)
+            alpha: Độ trong suốt của overlay
+        """
+        h, w = image.shape[:2]
+        
+        # Tạo overlay với màu tùy theo hướng và độ nghiêm trọng
+        overlay = image.copy()
+        
+        # Màu sắc theo độ nghiêm trọng
+        if duration > 3.0:
+            color = (0, 0, 255)  # Đỏ - rất nguy hiểm
+        elif duration > 2.0:
+            color = (0, 165, 255)  # Cam - nguy hiểm
+        else:
+            color = (0, 255, 255)  # Vàng - cảnh báo
+        
+        # Vẽ banner ở giữa màn hình
+        banner_height = 80
+        y_pos = (h - banner_height) // 2
+        
+        cv2.rectangle(overlay, (0, y_pos), (w, y_pos + banner_height), color, -1)
+        image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+        
+        # Text warning
+        direction_text_map = {
+            'left': 'TRÁI',
+            'right': 'PHẢI',
+            'down': 'DƯỚI (ĐIỆN THOẠI?)',
+            'up': 'TRÊN',
+            'off_road': 'NGOÀI ĐƯỜNG'
+        }
+        
+        direction_vn = direction_text_map.get(gaze_direction, gaze_direction.upper())
+        main_text = f"⚠ VUI LÒNG NHÌN ĐƯỜNG! ⚠"
+        sub_text = f"Nhìn {direction_vn} quá lâu ({duration:.1f}s)"
+        
+        # Vẽ text chính
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale_main = 1.0
+        font_scale_sub = 0.6
+        thickness_main = 3
+        thickness_sub = 2
+        
+        # Tính toán vị trí text chính
+        (tw_main, th_main), _ = cv2.getTextSize(main_text, font, font_scale_main, thickness_main)
+        x_main = (w - tw_main) // 2
+        y_main = y_pos + (banner_height - th_main) // 2
+        
+        # Vẽ text chính với shadow
+        cv2.putText(image, main_text, (x_main + 3, y_main + 3), font,
+                   font_scale_main, (0, 0, 0), thickness_main + 1, cv2.LINE_AA)
+        cv2.putText(image, main_text, (x_main, y_main), font,
+                   font_scale_main, (255, 255, 255), thickness_main, cv2.LINE_AA)
+        
+        # Vẽ text phụ
+        (tw_sub, th_sub), _ = cv2.getTextSize(sub_text, font, font_scale_sub, thickness_sub)
+        x_sub = (w - tw_sub) // 2
+        y_sub = y_main + th_main + 10
+        
+        cv2.putText(image, sub_text, (x_sub + 2, y_sub + 2), font,
+                   font_scale_sub, (0, 0, 0), thickness_sub + 1, cv2.LINE_AA)
+        cv2.putText(image, sub_text, (x_sub, y_sub), font,
+                   font_scale_sub, (255, 255, 255), thickness_sub, cv2.LINE_AA)
+        
         return image
     
     def draw_alert_overlay(self, image: np.ndarray, 

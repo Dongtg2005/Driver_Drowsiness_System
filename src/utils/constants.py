@@ -74,6 +74,7 @@ class Colors:
     ORANGE = (0, 165, 255)      # Nguy hiểm
     RED = (0, 0, 255)           # Khẩn cấp
     BLUE = (255, 0, 0)          # Thêm màu xanh dương
+    CYAN = (255, 255, 0)        # Cyan cho iris tracking
     
     # UI colors (Hex for CustomTkinter)
     BG_DARK = "#1a1a1a"

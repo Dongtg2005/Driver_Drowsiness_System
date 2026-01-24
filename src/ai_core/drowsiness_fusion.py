@@ -111,7 +111,8 @@ class DrowsinessFusion:
       - eye closed: +1
       - yawn: +3
       - nod: +2
-      - distraction (head): +2 (NEW)
+      - distraction (head): +2
+      - gaze distraction: +2 (NEW - Looking away from road)
       - normal: -1 (decay, floor 0)
 
     Also supports sunglasses detection (reduces eye weight) and returns actions.
@@ -121,7 +122,8 @@ class DrowsinessFusion:
                  decay_per_frame: int = 1,
                  yawn_weight: int = 3,
                  nod_weight: int = 2,
-                 head_weight: int = 2, # [NEW] Trọng số cho distraction
+                 head_weight: int = 2, # Trọng số cho distraction
+                 gaze_weight: int = 2, # [NEW] Trọng số cho gaze distraction
                  eye_weight: int = 1,
                  sunglasses_window: float = 3.0,  # Giảm xuống 3 giây
                  sunglasses_threshold: float = 0.20):  # Ngưỡng EAR cho kính râm (tăng để dễ phát hiện)
@@ -130,6 +132,7 @@ class DrowsinessFusion:
         self.yawn_weight = yawn_weight
         self.nod_weight = nod_weight
         self.head_weight = head_weight
+        self.gaze_weight = gaze_weight
         self.eye_weight = eye_weight
 
         # Detectors
@@ -150,7 +153,8 @@ class DrowsinessFusion:
 
     def update(self, ear: float, mar: float, is_yawning: bool, pitch: float, 
                timestamp: Optional[float] = None, is_smiling: bool = False,
-               yaw: float = 0.0, manual_sunglasses_mode: bool = False) -> dict:
+               yaw: float = 0.0, manual_sunglasses_mode: bool = False,
+               is_gaze_distracted: bool = False, gaze_duration: float = 0.0) -> dict:
         
         now = timestamp or time.time()
         self.last_update = now
@@ -239,14 +243,20 @@ class DrowsinessFusion:
         if nod_detected:
             self.score += self.nod_weight
             
-        # [NEW] Cộng điểm nếu bị phân tâm quá lâu
+        # [NEW] Cộng điểm nếu bị phân tâm quá lâu (head pose)
         if is_distracted:
             # Cộng điểm mỗi frame khi đang distracted
             self.score += self.head_weight
+        
+        # [NEW] Cộng điểm nếu mắt nhìn xa khỏi đường (gaze distraction)
+        if is_gaze_distracted:
+            # Cộng điểm mỗi frame khi đang nhìn khác chỗ quá lâu
+            self.score += self.gaze_weight
 
         # If everything normal, decay
         # Nếu đang cười thì cũng tính là "normal" để giảm score nhanh
-        is_normal = (eye_contrib == 0 and not is_yawning and not nod_detected and not is_distracted)
+        is_normal = (eye_contrib == 0 and not is_yawning and not nod_detected 
+                    and not is_distracted and not is_gaze_distracted)
         
         if is_normal or is_smiling:
             decay = self.decay * 3 if is_smiling else self.decay # Cười giúp tỉnh táo -> giảm nhanh hơn
@@ -266,8 +276,10 @@ class DrowsinessFusion:
             'score': int(self.score),
             'sunglasses': sunglasses,
             'nod': nod_detected,
-            'distracted': is_distracted,       # [NEW]
-            'distraction_duration': distraction_duration, # [NEW]
+            'distracted': is_distracted,
+            'distraction_duration': distraction_duration,
+            'gaze_distracted': is_gaze_distracted,  # [NEW]
+            'gaze_duration': gaze_duration,  # [NEW]
             'action': action
         }
 
