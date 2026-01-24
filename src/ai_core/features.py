@@ -261,10 +261,14 @@ class FeatureExtractor:
             self.calculate_both_ears(face)
             self.calculate_mar(face)
             
-            # 2. PERCLOS Detection (phân biệt chớp mắt vs buồn ngủ)
+            # 2. Lấy eye landmarks cho sunglasses detection
+            left_eye_landmarks = [face.pixel_landmarks[i] for i in mp_config.LEFT_EYE]
+            right_eye_landmarks = [face.pixel_landmarks[i] for i in mp_config.RIGHT_EYE]
+            
+            # 3. PERCLOS Detection (phân biệt chớp mắt vs buồn ngủ)
             eye_state, perclos_value = self.perclos_detector.update(self._current_ear)
             
-            # 3. Smile Detection (tránh false positive)
+            # 4. Smile Detection (tránh false positive)
             is_smiling, smile_confidence = self.smile_detector.is_smiling(
                 face,
                 self._left_ear,
@@ -272,7 +276,7 @@ class FeatureExtractor:
                 self._current_mar
             )
             
-            # 4. Trả về đầy đủ thông tin
+            # 5. Trả về đầy đủ thông tin
             return {
                 # Raw values
                 'ear': self._current_ear,
@@ -281,6 +285,10 @@ class FeatureExtractor:
                 'right_ear': self._right_ear,
                 'ear_raw': self._ear_history[-1] if self._ear_history else 0,
                 'mar_raw': self._mar_history[-1] if self._mar_history else 0,
+                
+                # Eye landmarks for sunglasses detection
+                'left_eye_landmarks': left_eye_landmarks,
+                'right_eye_landmarks': right_eye_landmarks,
                 
                 # PERCLOS Analysis
                 'eye_state': eye_state,

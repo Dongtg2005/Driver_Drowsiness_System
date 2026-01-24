@@ -259,7 +259,7 @@ class FrameDrawer:
         image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
         
         # Draw icon and text
-        text = "🕶️ PHAT HIEN KINH RAM - CHE DO GIAM SAT HANH VI"
+        text = "PHAT HIEN KINH RAM - CHE DO GIAM SAT HANH VI"
         font_scale = 0.6
         thickness = 2
         (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)

@@ -123,8 +123,8 @@ class DrowsinessFusion:
                  nod_weight: int = 2,
                  head_weight: int = 2, # [NEW] Trọng số cho distraction
                  eye_weight: int = 1,
-                 sunglasses_window: float = 10.0,
-                 sunglasses_zero_frac: float = 0.95):
+                 sunglasses_window: float = 3.0,  # Giảm xuống 3 giây
+                 sunglasses_threshold: float = 0.20):  # Ngưỡng EAR cho kính râm (tăng để dễ phát hiện)
         self.score = 0
         self.decay = decay_per_frame
         self.yawn_weight = yawn_weight
@@ -139,7 +139,8 @@ class DrowsinessFusion:
         # For sunglasses detection: store recent ear samples
         self.ear_history = deque()
         self.sunglasses_window = sunglasses_window
-        self.sunglasses_zero_frac = sunglasses_zero_frac
+        self.sunglasses_threshold = sunglasses_threshold  # EAR < 0.20 = kính râm/che mắt
+        self.sunglasses_detected_state = False  # Track state để tránh flicker
         self.last_update = time.time()
 
     def _purge_ear(self, now: float):
@@ -149,7 +150,7 @@ class DrowsinessFusion:
 
     def update(self, ear: float, mar: float, is_yawning: bool, pitch: float, 
                timestamp: Optional[float] = None, is_smiling: bool = False,
-               yaw: float = 0.0) -> dict: # [NEW] Added yaw param
+               yaw: float = 0.0, manual_sunglasses_mode: bool = False) -> dict:
         
         now = timestamp or time.time()
         self.last_update = now
@@ -158,9 +159,50 @@ class DrowsinessFusion:
         self.ear_history.append((now, ear))
         self._purge_ear(now)
 
-        # detect sunglasses: many zero / invalid ears in window
-        zeros = sum(1 for t, e in self.ear_history if e <= 0.001)
-        sunglasses = (len(self.ear_history) > 0) and (zeros / len(self.ear_history) >= self.sunglasses_zero_frac)
+        # detect sunglasses: AUTO detection HOẶC manual mode
+        # AUTO: EAR thấp bất thường liên tục (< 0.20) hoặc = 0
+        # MANUAL: User tự bật trong settings
+        
+        auto_sunglasses = False
+        if not manual_sunglasses_mode:  # Chỉ auto-detect khi chưa bật manual
+            low_ear_count = sum(1 for t, e in self.ear_history if e <= self.sunglasses_threshold)
+            total_samples = len(self.ear_history)
+            
+            # Phát hiện kính râm nếu:
+            # 1. Có đủ samples (ít nhất 60 frames ~ 2 giây)
+            # 2. 70% frames có EAR < 0.20 (thấp hơn bình thường)
+            if total_samples >= 60:
+                ear_values = [e for t, e in self.ear_history]
+                avg_ear = sum(ear_values) / len(ear_values)
+                low_ear_ratio = low_ear_count / total_samples
+                
+                # Hysteresis: Giữ trạng thái để tránh flicker
+                if self.sunglasses_detected_state:
+                    # Đã detect → Chỉ tắt khi EAR tốt trở lại (> 60% frames bình thường)
+                    auto_sunglasses = (low_ear_ratio >= 0.40)  # Ngưỡng thấp hơn để tắt
+                else:
+                    # Chưa detect → Cần 70% frames thấp để kích hoạt
+                    auto_sunglasses = (low_ear_ratio >= 0.70)
+                
+                self.sunglasses_detected_state = auto_sunglasses
+                
+                # Debug logging mỗi 60 frames (2 giây)
+                if total_samples % 60 == 0:
+                    print(f"[DEBUG] EAR Stats - Avg: {avg_ear:.3f}, Low: {low_ear_count}/{total_samples} ({100*low_ear_ratio:.1f}%), Auto Sunglasses: {auto_sunglasses}")
+        
+        # Kết hợp AUTO và MANUAL mode
+        sunglasses = manual_sunglasses_mode or auto_sunglasses
+        
+        # Debug log - hiển thị cả auto và manual
+        if manual_sunglasses_mode:
+            print(f"[DEBUG] Sunglasses Mode: MANUAL ✅ (sunglasses={sunglasses})")
+        elif len(self.ear_history) >= 60 and len(self.ear_history) % 60 == 0:
+            # Chỉ log khi có đủ samples và mỗi 2 giây
+            ear_values = [e for t, e in self.ear_history]
+            avg_ear = sum(ear_values) / len(ear_values)
+            low_ear_count = sum(1 for t, e in self.ear_history if e <= self.sunglasses_threshold)
+            low_ear_ratio = low_ear_count / len(self.ear_history)
+            print(f"[DEBUG] Sunglasses Mode: AUTO - EAR: {avg_ear:.3f}, Low: {low_ear_count}/{len(self.ear_history)} ({100*low_ear_ratio:.1f}%), Detected: {auto_sunglasses}")
 
         # nod detection
         nod_detected = self.nod_detector.update(pitch, now)
@@ -168,7 +210,7 @@ class DrowsinessFusion:
         # [NEW] Head Distraction Detection with Delay
         is_distracted, distraction_duration = self.head_tracker.update(pitch, yaw, now)
 
-        # Apply weights, but reduce eye contribution if sunglasses detected or smiling
+        # Apply weights, but reduce eye contribution if smiling
         eye_contrib = 0
         if ear <= 0.0:
             # treat as eye closed
@@ -180,8 +222,10 @@ class DrowsinessFusion:
             if ear < 0.22:
                 eye_contrib = self.eye_weight
 
+        # [FIXED] Kính râm: GIẢM độ tin cậy (x0.5) thay vì bỏ qua hoàn toàn
+        # Lý do: EAR thấp có thể do kính râm HOẶC buồn ngủ → Vẫn cần cảnh báo nhưng ít nhạy hơn
         if sunglasses:
-            eye_contrib = 0  # ignore eye
+            eye_contrib = int(eye_contrib * 0.5)  # Giảm 50% trọng số thay vì bỏ qua
             
         # [NEW] Nếu đang cười -> Bỏ qua mắt (vì mắt híp lại)
         if is_smiling:

@@ -28,6 +28,7 @@ from src.ai_core.head_pose import HeadPoseEstimator
 from src.ai_core.drawer import FrameDrawer
 from src.ai_core.drowsiness_fusion import fusion  # [NEW] Sensor Fusion
 from src.ai_core.image_enhancer import enhance_image # [NEW] Night Mode
+from src.ai_core.sunglasses_detector import SunglassesDetector  # [NEW] Sunglasses Detection
 from src.models.alert_model import alert_model, session_model
 from src.utils.constants import AlertType, AlertLevel, DetectionState, Colors, Messages
 from src.utils.audio_manager import audio_manager
@@ -46,6 +47,7 @@ class MonitorController:
         self.feature_extractor = FeatureExtractor()
         self.head_pose_estimator = HeadPoseEstimator()
         self.frame_drawer = FrameDrawer()
+        self.sunglasses_detector = SunglassesDetector()  # [NEW] Kính râm detector
         
         # Camera
         self._camera: Optional[cv2.VideoCapture] = None
@@ -98,7 +100,11 @@ class MonitorController:
         # Sunglasses detection state tracking
         self._sunglasses_detected = False
         self._last_sunglasses_notification_time = 0.0
+        self._auto_sunglasses_detected = False  # [NEW] Auto-detection result
         self._sunglasses_notification_cooldown = 30.0  # 30 giây cooldown
+        
+        # User settings storage (for sunglasses_mode, etc.)
+        self._user_settings: Optional[Dict] = None
     
     def set_user(self, user_id: int) -> None:
         self._user_id = user_id
@@ -108,6 +114,7 @@ class MonitorController:
             rows = execute_query("SELECT * FROM user_settings WHERE user_id = %s", (user_id,), fetch=True)
             if rows and len(rows) > 0:
                 settings = rows[0]
+                self._user_settings = settings  # [NEW] Store full settings dict
                 self._ear_threshold = float(settings.get('ear_threshold', config.EAR_THRESHOLD))
                 self._mar_threshold = float(settings.get('mar_threshold', config.MAR_THRESHOLD))
                 self._head_threshold = float(settings.get('head_threshold', config.HEAD_PITCH_THRESHOLD))
@@ -238,6 +245,9 @@ class MonitorController:
         # [NIGHT MODE] Tăng sáng ảnh nếu được bật
         if config.ENABLE_NIGHT_MODE:
             frame = enhance_image(frame)
+        
+        # [NEW] Store current frame for sunglasses detector
+        self._current_frame = frame.copy()
 
         self._update_fps()
 
@@ -313,7 +323,7 @@ class MonitorController:
             if current_time - self._last_sunglasses_notification_time > self._sunglasses_notification_cooldown:
                 logger.warning("⚠️ [SUNGLASSES DETECTED] Switching to behavior monitoring mode (Eye tracking disabled, focusing on Head & Mouth)")
                 # Voice notification (non-blocking)
-                if config.ENABLE_TTS_ALERTS:
+                if config.ENABLE_TTS:
                     threading.Thread(
                         target=audio_manager.speak,
                         args=("Phát hiện kính râm. Chuyển sang chế độ giám sát hành vi.",),
@@ -411,8 +421,26 @@ class MonitorController:
         """
         is_yawning = (features.get('mar', 0) > self._mar_threshold)
         
+        # Đọc manual sunglasses mode từ settings
+        manual_sunglasses_mode = self._user_settings.get('sunglasses_mode', False) if self._user_settings else False
+        
+        # [NEW] Auto-detect kính râm bằng variance detector (chỉ khi chưa bật manual mode)
+        auto_sunglasses_detected = False
+        if not manual_sunglasses_mode:
+            left_eye = features.get('left_eye_landmarks', [])
+            right_eye = features.get('right_eye_landmarks', [])
+            
+            if left_eye and right_eye and hasattr(self, '_current_frame'):
+                auto_sunglasses_detected, debug_info = self.sunglasses_detector.detect(
+                    self._current_frame, left_eye, right_eye
+                )
+                self._auto_sunglasses_detected = auto_sunglasses_detected
+        
+        # Kết hợp manual và auto detection
+        final_sunglasses_mode = manual_sunglasses_mode or auto_sunglasses_detected
+        
         # Cập nhật Fusion Engine
-        # EAR, MAR, Pitch, Yawn status, Timestamp, Smiling Status, Yaw
+        # EAR, MAR, Pitch, Yawn status, Timestamp, Smiling Status, Yaw, Sunglasses Mode (manual OR auto)
         result = fusion.update(
             ear=features.get('ear', 0.3),
             mar=features.get('mar', 0.0),
@@ -420,7 +448,8 @@ class MonitorController:
             pitch=pitch,
             timestamp=time.time(),
             is_smiling=is_smiling,
-            yaw=yaw
+            yaw=yaw,
+            manual_sunglasses_mode=final_sunglasses_mode
         )
         
         # Mapping action từ Fusion sang AlertLevel
