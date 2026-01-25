@@ -19,6 +19,7 @@ from src.utils.math_helpers import euclidean_distance, moving_average
 from src.ai_core.face_mesh import FaceLandmarks
 from src.ai_core.perclos_detector import get_perclos_detector
 from src.ai_core.smile_detector import get_smile_detector
+from src.ai_core.gaze_tracker import get_gaze_tracker
 from src.utils.logger import logger
 
 
@@ -61,6 +62,7 @@ class FeatureExtractor:
         # Detectors
         self.perclos_detector = get_perclos_detector()
         self.smile_detector = get_smile_detector()
+        self.gaze_tracker = get_gaze_tracker()
     
     def calculate_ear(self, eye_points: List[Tuple[int, int]]) -> float:
         """
@@ -261,10 +263,14 @@ class FeatureExtractor:
             self.calculate_both_ears(face)
             self.calculate_mar(face)
             
-            # 2. PERCLOS Detection (phân biệt chớp mắt vs buồn ngủ)
+            # 2. Lấy eye landmarks cho sunglasses detection
+            left_eye_landmarks = [face.pixel_landmarks[i] for i in mp_config.LEFT_EYE]
+            right_eye_landmarks = [face.pixel_landmarks[i] for i in mp_config.RIGHT_EYE]
+            
+            # 3. PERCLOS Detection (phân biệt chớp mắt vs buồn ngủ)
             eye_state, perclos_value = self.perclos_detector.update(self._current_ear)
             
-            # 3. Smile Detection (tránh false positive)
+            # 4. Smile Detection (tránh false positive)
             is_smiling, smile_confidence = self.smile_detector.is_smiling(
                 face,
                 self._left_ear,
@@ -272,7 +278,12 @@ class FeatureExtractor:
                 self._current_mar
             )
             
-            # 4. Trả về đầy đủ thông tin
+            # 5. Gaze Tracking (theo dõi hướng nhìn)
+            gaze_ratio = self.gaze_tracker.calculate_gaze_ratios(face)
+            is_gaze_distracted, gaze_duration, gaze_direction = self.gaze_tracker.update_distraction_state(gaze_ratio)
+            gaze_info = self.gaze_tracker.get_gaze_info()
+            
+            # 6. Trả về đầy đủ thông tin
             return {
                 # Raw values
                 'ear': self._current_ear,
@@ -281,6 +292,10 @@ class FeatureExtractor:
                 'right_ear': self._right_ear,
                 'ear_raw': self._ear_history[-1] if self._ear_history else 0,
                 'mar_raw': self._mar_history[-1] if self._mar_history else 0,
+                
+                # Eye landmarks for sunglasses detection
+                'left_eye_landmarks': left_eye_landmarks,
+                'right_eye_landmarks': right_eye_landmarks,
                 
                 # PERCLOS Analysis
                 'eye_state': eye_state,
@@ -291,7 +306,14 @@ class FeatureExtractor:
                 
                 # Smile Detection
                 'is_smiling': is_smiling,
-                'smile_confidence': smile_confidence
+                'smile_confidence': smile_confidence,
+                
+                # Gaze Tracking
+                'gaze_ratio': gaze_ratio,
+                'gaze_direction': gaze_direction,
+                'is_gaze_distracted': is_gaze_distracted,
+                'gaze_duration': gaze_duration,
+                'gaze_info': gaze_info
             }
         
         except Exception as e:
@@ -314,7 +336,12 @@ class FeatureExtractor:
             'is_drowsy': False,
             'is_just_blinking': False,
             'is_smiling': False,
-            'smile_confidence': 0.0
+            'smile_confidence': 0.0,
+            'gaze_ratio': (0.0, 0.0),
+            'gaze_direction': 'center',
+            'is_gaze_distracted': False,
+            'gaze_duration': 0.0,
+            'gaze_info': {}
         }
     
     def reset(self) -> None:
@@ -336,6 +363,8 @@ class FeatureExtractor:
             self.perclos_detector.reset()
         if self.smile_detector:
             self.smile_detector.reset()
+        if self.gaze_tracker:
+            self.gaze_tracker.reset()
     
     def get_current_state(self) -> Dict[str, float]:
         """

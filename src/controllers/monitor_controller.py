@@ -28,6 +28,7 @@ from src.ai_core.head_pose import HeadPoseEstimator
 from src.ai_core.drawer import FrameDrawer
 from src.ai_core.drowsiness_fusion import fusion  # [NEW] Sensor Fusion
 from src.ai_core.image_enhancer import enhance_image # [NEW] Night Mode
+from src.ai_core.sunglasses_detector import SunglassesDetector  # [NEW] Sunglasses Detection
 from src.models.alert_model import alert_model, session_model
 from src.utils.constants import AlertType, AlertLevel, DetectionState, Colors, Messages
 from src.utils.audio_manager import audio_manager
@@ -46,6 +47,7 @@ class MonitorController:
         self.feature_extractor = FeatureExtractor()
         self.head_pose_estimator = HeadPoseEstimator()
         self.frame_drawer = FrameDrawer()
+        self.sunglasses_detector = SunglassesDetector()  # [NEW] Kính râm detector
         
         # Camera
         self._camera: Optional[cv2.VideoCapture] = None
@@ -98,7 +100,11 @@ class MonitorController:
         # Sunglasses detection state tracking
         self._sunglasses_detected = False
         self._last_sunglasses_notification_time = 0.0
+        self._auto_sunglasses_detected = False  # [NEW] Auto-detection result
         self._sunglasses_notification_cooldown = 30.0  # 30 giây cooldown
+        
+        # User settings storage (for sunglasses_mode, etc.)
+        self._user_settings: Optional[Dict] = None
     
     def set_user(self, user_id: int) -> None:
         self._user_id = user_id
@@ -108,6 +114,7 @@ class MonitorController:
             rows = execute_query("SELECT * FROM user_settings WHERE user_id = %s", (user_id,), fetch=True)
             if rows and len(rows) > 0:
                 settings = rows[0]
+                self._user_settings = settings  # [NEW] Store full settings dict
                 self._ear_threshold = float(settings.get('ear_threshold', config.EAR_THRESHOLD))
                 self._mar_threshold = float(settings.get('mar_threshold', config.MAR_THRESHOLD))
                 self._head_threshold = float(settings.get('head_threshold', config.HEAD_PITCH_THRESHOLD))
@@ -251,6 +258,9 @@ class MonitorController:
         # [NIGHT MODE] Tăng sáng ảnh nếu được bật
         if config.ENABLE_NIGHT_MODE:
             frame = enhance_image(frame)
+        
+        # [NEW] Store current frame for sunglasses detector
+        self._current_frame = frame.copy()
 
         self._update_fps()
 
@@ -338,7 +348,7 @@ class MonitorController:
             if current_time - self._last_sunglasses_notification_time > self._sunglasses_notification_cooldown:
                 logger.warning("⚠️ [SUNGLASSES DETECTED] Switching to behavior monitoring mode (Eye tracking disabled, focusing on Head & Mouth)")
                 # Voice notification (non-blocking)
-                if config.ENABLE_TTS_ALERTS:
+                if config.ENABLE_TTS:
                     threading.Thread(
                         target=audio_manager.speak,
                         args=("Phát hiện kính râm. Chuyển sang chế độ giám sát hành vi.",),
@@ -364,7 +374,11 @@ class MonitorController:
             'is_smiling': is_smiling,
             'sunglasses': fusion_result.get('sunglasses', False),
             'score': fusion_result.get('score', 0),
-            'distracted': fusion_result.get('distracted', False)
+            'distracted': fusion_result.get('distracted', False),
+            'gaze_distracted': fusion_result.get('gaze_distracted', False),
+            'gaze_direction': features.get('gaze_direction', 'center'),
+            'gaze_ratio': features.get('gaze_ratio', (0.0, 0.0)),
+            'gaze_duration': fusion_result.get('gaze_duration', 0.0)
         })
 
         # Thông tin cảnh báo cho UI (Toast/đếm số)
@@ -384,7 +398,11 @@ class MonitorController:
             yawning = self._state == DetectionState.YAWNING
             
             frame = self.frame_drawer.draw_detected_outlines(frame, face)
-            frame = self.frame_drawer.draw_eyes(frame, face, closed=eyes_closed)
+            # Draw eyes with gaze tracking visualization
+            gaze_ratio = data.get('gaze_ratio', (0.0, 0.0))
+            draw_gaze = data.get('gaze_distracted', False) or abs(gaze_ratio[0]) > 0.2 or abs(gaze_ratio[1]) > 0.2
+            frame = self.frame_drawer.draw_eyes(frame, face, closed=eyes_closed, 
+                                               draw_iris=draw_gaze, gaze_ratio=gaze_ratio)
             # [REMOVED] Mouth Frame per user request
             # frame = self.frame_drawer.draw_mouth(frame, face, yawning=yawning)
             
@@ -399,19 +417,31 @@ class MonitorController:
             if features.get('is_just_blinking', False): secondary_status += "👁️ Blink "
             if data['sunglasses']: secondary_status += "🕶️ Sunglasses "
             if data.get('distracted'): secondary_status += "👀 Distracted "
+            if data.get('gaze_distracted'): secondary_status += "👁️ Gaze Off "
 
-            # Cập nhật lời gọi hàm draw_status_panel với Score và Status
+            # Cập nhật lời gọi hàm draw_status_panel với Score và Status + Gaze
             frame = self.frame_drawer.draw_status_panel(
                 frame, self._current_ear, self._current_mar,
                 self._current_pitch, self._current_yaw, self._fps,
                 self._alert_level, data['perclos'], str(self._state),
                 score=data['score'], 
-                secondary_status=secondary_status
+                secondary_status=secondary_status,
+                gaze_direction=data.get('gaze_direction'),
+                gaze_duration=data.get('gaze_duration', 0.0)
             )
             
             # Vẽ Sunglasses Warning Banner (nếu phát hiện)
             if data.get('sunglasses', False):
                 frame = self.frame_drawer.draw_sunglasses_warning(frame, alpha=0.7)
+            
+            # Vẽ Gaze Distraction Warning (nếu phát hiện nhìn lệch khỏi đường)
+            if data.get('gaze_distracted', False):
+                frame = self.frame_drawer.draw_gaze_distraction_warning(
+                    frame, 
+                    data.get('gaze_direction', 'off_road'),
+                    data.get('gaze_duration', 0.0),
+                    alpha=0.75
+                )
             
             # Vẽ Alert Overlay (nếu có) và được bật trong cấu hình
             if self._alert_level != AlertLevel.NONE and config.SHOW_ALERT_OVERLAY_ON_FRAME:
@@ -436,8 +466,27 @@ class MonitorController:
         """
         is_yawning = (features.get('mar', 0) > self._mar_threshold)
         
+        # Đọc manual sunglasses mode từ settings
+        manual_sunglasses_mode = self._user_settings.get('sunglasses_mode', False) if self._user_settings else False
+        
+        # [NEW] Auto-detect kính râm bằng variance detector (chỉ khi chưa bật manual mode)
+        auto_sunglasses_detected = False
+        if not manual_sunglasses_mode:
+            left_eye = features.get('left_eye_landmarks', [])
+            right_eye = features.get('right_eye_landmarks', [])
+            
+            if left_eye and right_eye and hasattr(self, '_current_frame'):
+                auto_sunglasses_detected, debug_info = self.sunglasses_detector.detect(
+                    self._current_frame, left_eye, right_eye
+                )
+                self._auto_sunglasses_detected = auto_sunglasses_detected
+        
+        # Kết hợp manual và auto detection
+        final_sunglasses_mode = manual_sunglasses_mode or auto_sunglasses_detected
+        
         # Cập nhật Fusion Engine
-        # EAR, MAR, Pitch, Yawn status, Timestamp, Smiling Status, Yaw
+        # EAR, MAR, Pitch, Yawn status, Timestamp, Smiling Status, Yaw, Sunglasses Mode (manual OR auto)
+        # + Gaze Distraction (NEW)
         result = fusion.update(
             ear=features.get('ear', 0.3),
             mar=features.get('mar', 0.0),
@@ -446,19 +495,28 @@ class MonitorController:
             timestamp=time.time(),
             is_smiling=is_smiling,
             yaw=yaw,
+<<<<<<< HEAD
             ear_threshold=self._ear_threshold  # [NEW] Pass calibrated threshold
+=======
+            manual_sunglasses_mode=final_sunglasses_mode,
+            is_gaze_distracted=features.get('is_gaze_distracted', False),
+            gaze_duration=features.get('gaze_duration', 0.0)
+>>>>>>> 972a214afbc65dda5d248b209262e34964da9fef
         )
         
         # Mapping action từ Fusion sang AlertLevel
         action = result.get('action')
         score = result.get('score', 0)
         is_distracted = result.get('distracted', False)
+        is_gaze_distracted = result.get('gaze_distracted', False)
         
         # Xác định State & Alert Level
         if action == 'alarm':
             self._alert_level = AlertLevel.ALARM
             # Đoán nguyên nhân chính để set state
-            if is_distracted: self._state = DetectionState.DISTRACTED
+            # Prioritize gaze distraction first (most immediate danger)
+            if is_gaze_distracted: self._state = DetectionState.DISTRACTED
+            elif is_distracted: self._state = DetectionState.DISTRACTED
             elif is_yawning: self._state = DetectionState.YAWNING
             # Prioritize HEAD_DOWN if pitch is visibly down (<-12) during alarm, 
             # as looking down often causes low EAR (squinting/eyelids lowering)
@@ -466,7 +524,8 @@ class MonitorController:
             else: self._state = DetectionState.EYES_CLOSED
         elif action == 'beep':
             self._alert_level = AlertLevel.WARNING
-            if is_distracted: self._state = DetectionState.DISTRACTED
+            if is_gaze_distracted: self._state = DetectionState.DISTRACTED
+            elif is_distracted: self._state = DetectionState.DISTRACTED
             elif is_yawning: self._state = DetectionState.YAWNING
             elif pitch < -12.0: self._state = DetectionState.HEAD_DOWN
         else:

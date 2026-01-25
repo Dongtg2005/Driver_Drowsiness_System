@@ -37,7 +37,8 @@ class SettingsController:
             'alert_volume': 0.8,
             'sensitivity_level': SensitivityLevel.MEDIUM.value,
             'enable_sound': True,
-            'enable_vibration': True # Not yet implemented in UI/DB, but kept for consistency
+            'enable_vibration': True, # Not yet implemented in UI/DB, but kept for consistency
+            'sunglasses_mode': False  # [NEW] Chế độ kính râm thủ công
         }
     
     def set_user(self, user_id: int) -> None:
@@ -93,7 +94,8 @@ class SettingsController:
             'alert_volume': self._current_settings.alert_volume,
             'sensitivity_level': self._current_settings.sensitivity_level,
             'enable_sound': self._current_settings.enable_sound,
-            'enable_vibration': self._current_settings.enable_vibration # Assuming this exists in DB
+            'enable_vibration': self._current_settings.enable_vibration, # Assuming this exists in DB
+            'sunglasses_mode': getattr(self._current_settings, 'sunglasses_mode', False)  # [NEW] Safe get
         }
     
     def get_setting(self, key: str, default=None):

@@ -128,6 +128,14 @@ class SettingsView(ctk.CTkFrame):
         )
         self.sound_switch.pack(anchor="w", padx=20, pady=10)
         
+        # [NEW] Sunglasses Mode Switch
+        self.sunglasses_switch = ctk.CTkSwitch(
+            section, text="Chế độ Kính râm (Giảm độ nhạy mắt)", progress_color=Colors.WARNING,
+            fg_color=Colors.TEXT_MUTED, button_color=Colors.BG_DARK,
+            button_hover_color=Colors.BG_INPUT
+        )
+        self.sunglasses_switch.pack(anchor="w", padx=20, pady=10)
+        
         self.volume_slider, self.volume_value_label = self._create_slider(
             section, "Âm lượng cảnh báo", "", 0, 1, 10, "{:.0%}"
         )
@@ -200,6 +208,12 @@ class SettingsView(ctk.CTkFrame):
         else:
             self.sound_switch.deselect()
         
+        # [NEW] Load sunglasses mode
+        if settings.get('sunglasses_mode', False):
+            self.sunglasses_switch.select()
+        else:
+            self.sunglasses_switch.deselect()
+        
         preset_names = {'LOW': 'Thấp', 'MEDIUM': 'Trung bình', 'HIGH': 'Cao'}
         sensitivity = settings.get('sensitivity_level', 'MEDIUM')
         self.preset_label.configure(text=f"Hiện tại: {preset_names.get(sensitivity, 'Tùy chỉnh')}")
@@ -220,7 +234,8 @@ class SettingsView(ctk.CTkFrame):
             'mar_threshold': self.mar_slider.get(),
             'head_threshold': self.head_slider.get(),
             'alert_volume': self.volume_slider.get(),
-            'enable_sound': bool(self.sound_switch.get())
+            'enable_sound': bool(self.sound_switch.get()),
+            'sunglasses_mode': bool(self.sunglasses_switch.get())  # [NEW]
         }
         success, message = settings_controller.update_settings(**settings_data)
         

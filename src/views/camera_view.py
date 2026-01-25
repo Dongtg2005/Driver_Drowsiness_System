@@ -360,7 +360,7 @@ class CameraView(ctk.CTkFrame):
             if sunglasses:
                 # Ưu tiên hiển thị cảnh báo kính râm
                 self.alert_banner.configure(
-                    text="🕶️ PHÁT HIỆN KÍNH RÂM - Chế độ giám sát hành vi", 
+                    text="PHÁT HIỆN KÍNH RÂM - Chế độ giám sát hành vi", 
                     height=40, 
                     fg_color=(255, 140, 0)  # Orange
                 )

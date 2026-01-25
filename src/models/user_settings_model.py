@@ -22,6 +22,7 @@ class UserSettings(Base):
     sensitivity_level = Column(String(10), default='MEDIUM') # LOW, MEDIUM, HIGH
     enable_sound = Column(Boolean, default=True)
     enable_vibration = Column(Boolean, default=True)
+    sunglasses_mode = Column(Boolean, default=False)  # Chế độ kính râm thủ công
 
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
