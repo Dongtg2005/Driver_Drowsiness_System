@@ -495,13 +495,10 @@ class MonitorController:
             timestamp=time.time(),
             is_smiling=is_smiling,
             yaw=yaw,
-<<<<<<< HEAD
-            ear_threshold=self._ear_threshold  # [NEW] Pass calibrated threshold
-=======
+            ear_threshold=self._ear_threshold,  # [NEW] Pass calibrated threshold
             manual_sunglasses_mode=final_sunglasses_mode,
             is_gaze_distracted=features.get('is_gaze_distracted', False),
             gaze_duration=features.get('gaze_duration', 0.0)
->>>>>>> 972a214afbc65dda5d248b209262e34964da9fef
         )
         
         # Mapping action từ Fusion sang AlertLevel

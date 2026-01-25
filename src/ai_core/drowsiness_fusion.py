@@ -153,12 +153,9 @@ class DrowsinessFusion:
 
     def update(self, ear: float, mar: float, is_yawning: bool, pitch: float, 
                timestamp: Optional[float] = None, is_smiling: bool = False,
-<<<<<<< HEAD
-               yaw: float = 0.0, ear_threshold: float = 0.22) -> dict: # [NEW] Added yaw and ear_threshold param
-=======
-               yaw: float = 0.0, manual_sunglasses_mode: bool = False,
+               yaw: float = 0.0, ear_threshold: float = 0.22, # [NEW] Added yaw and ear_threshold param
+               manual_sunglasses_mode: bool = False,
                is_gaze_distracted: bool = False, gaze_duration: float = 0.0) -> dict:
->>>>>>> 972a214afbc65dda5d248b209262e34964da9fef
         
         now = timestamp or time.time()
         self.last_update = now
