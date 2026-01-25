@@ -266,7 +266,7 @@ class CameraView(ctk.CTkFrame):
                 return
             
             self.is_running = True
-            self.monitor.start_monitoring()  # Start the detection logic and session
+            self.monitor.start_monitoring(spawn_camera=False)  # Start the detection logic and session (Camera handled here)
             self.start_btn.configure(state="disabled", text="▶️ Bắt đầu")
             self.stop_btn.configure(state="normal")
             self.status_label.configure(text="🟢 Đang giám sát")
@@ -406,8 +406,11 @@ class CameraView(ctk.CTkFrame):
                         self.toast_container.show_toast(message=msg, notification_type=style, position="top-right")
                         self._last_toast_time = now
         except Exception as e:
-            # Bỏ qua lỗi UI khi widget đang bị hủy, nhưng in lỗi nếu không phải do hủy
-            if "invalid command name" not in str(e):
+            # Bỏ qua lỗi UI khi widget đang bị hủy hoặc ảnh bị xóa
+            # "image ... doesn't exist" là lỗi TclError phổ biến khi update ảnh trên widget đang hủy
+            if "doesn't exist" in str(e) or "invalid command name" in str(e):
+                pass
+            else:
                 print(f"❌ UI Update Error: {e}")
             pass
     

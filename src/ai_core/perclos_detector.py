@@ -105,6 +105,15 @@ class PERCLOSDetector:
         self._perclos_value = 0.0
         self._last_perclos_update = time.time()
     
+    def set_threshold(self, threshold: float) -> None:
+        """
+        Cài đặt ngưỡng EAR thủ công (từ Calibration).
+        Vô hiệu hóa Adaptive Calibration để dùng giá trị cố định.
+        """
+        self.ear_threshold = float(threshold)
+        self._adaptive_phase = False
+        print(f"✅ PERCLOS: Manual threshold set to {self.ear_threshold:.3f} (Adaptive disabled)")
+    
     def update(self, ear: float, timestamp: Optional[float] = None) -> Tuple[EyeState, float]:
         """
         Cập nhật detector với EAR mới

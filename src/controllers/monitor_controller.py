@@ -141,10 +141,15 @@ class MonitorController:
             self._camera.release()
             self._camera = None
     
-    def start_monitoring(self) -> bool:
-        if not self._camera or not self._camera.isOpened():
-            if not self.start_camera():
-                return False
+    def start_monitoring(self, spawn_camera: bool = True) -> bool:
+        # [NEW] Force reload settings to ensure latest calibration is used
+        if self._user_id:
+            self.set_user(self._user_id)
+
+        if spawn_camera:
+            if not self._camera or not self._camera.isOpened():
+                if not self.start_camera():
+                    return False
         
         self._is_running = True
         self._is_paused = False
@@ -157,6 +162,14 @@ class MonitorController:
         
         # Reset detectors to clean state
         self.feature_extractor.reset()
+        
+        # [NEW] Sync PERCLOS threshold with user settings
+        try:
+            from src.ai_core.perclos_detector import get_perclos_detector
+            pd = get_perclos_detector()
+            pd.set_threshold(self._ear_threshold)
+        except Exception as e:
+            logger.error(f"Failed to sync PERCLOS threshold: {e}")
         
         if self._user_id:
             self._session_id = session_model.start_session(self._user_id)
@@ -261,21 +274,33 @@ class MonitorController:
             
             # [CRITICAL UPDATE] LAST KNOWN STATE HEURISTIC
             # Nếu mất mặt nhưng trước đó đầu đang chúi xuống -> Gục đầu (Head Drop)
-            # Relax threshold to -10.0 to catch cases where face is lost early during the drop
             if self._current_pitch < -10.0:
                  self._state = DetectionState.HEAD_DOWN
                  self._alert_level = AlertLevel.CRITICAL
-                 # Kích hoạt báo động ngay (Không cần đợi counters)
                  self._trigger_alert(score=100)
-                 
-                 # Vẽ cảnh báo lên frame dù không thấy mặt
                  msg = "PHAT HIEN GUC DAU"
                  frame = self.frame_drawer.draw_alert_overlay(frame, self._alert_level, msg)
                  data['state'] = DetectionState.HEAD_DOWN.value
                  data['alert_level'] = AlertLevel.CRITICAL.value
                  return frame, data
 
-            # Nếu mất mặt quá 5 frames (và không phải gục đầu) -> Reset
+            # [NEW] DISTRACTION PERSISTENCE
+            # Nếu mất mặt khi đang quay đầu (Yaw lớn) -> Giả định vẫn đang quay đầu
+            if abs(self._current_yaw) > 15.0:
+                 # Tiếp tục update fusion với giá trị cũ để timer không bị reset
+                 self._check_drowsiness_fusion(self._current_features, self._current_pitch, self._current_yaw, False)
+                 
+                 # Nếu fusion xác nhận distracted -> Báo động ngay
+                 if self._state == DetectionState.DISTRACTED:
+                     self._alert_level = AlertLevel.WARNING # Set warning level
+                     self._trigger_alert(score=20) # Score đủ để trigger TTS priority 2
+                     msg = "MAT TAP TRUNG"
+                     frame = self.frame_drawer.draw_alert_overlay(frame, self._alert_level, msg)
+                     data['state'] = DetectionState.DISTRACTED.value
+                     data['alert_level'] = self._alert_level.value
+                     return frame, data
+
+            # Nếu mất mặt quá 5 frames (và không phải gục đầu/quay đầu) -> Reset
             if self._no_face_frames > 5:
                 self._state = DetectionState.NO_FACE
                 self._reset_counters() # Reset hết để không lưu alert cũ
@@ -420,7 +445,8 @@ class MonitorController:
             pitch=pitch,
             timestamp=time.time(),
             is_smiling=is_smiling,
-            yaw=yaw
+            yaw=yaw,
+            ear_threshold=self._ear_threshold  # [NEW] Pass calibrated threshold
         )
         
         # Mapping action từ Fusion sang AlertLevel
@@ -492,18 +518,31 @@ class MonitorController:
 
         # TTS Logic (Smart Recommendations)
         if config.ENABLE_TTS:
-            # Chỉ nói mỗi 10 giây một lần để tránh spam
-            if not self._last_tts_time or (curr_time - self._last_tts_time) > 10.0:
+            # Chỉ nói mỗi 8 giây một lần để tránh spam (đã giảm từ 10s xuống 8s cho phản ứng nhanh hơn)
+            if not self._last_tts_time or (curr_time - self._last_tts_time) > 8.0:
                 hint = ""
-                if score > 40: # Rất buồn ngủ
+                
+                # Priority 1: Critical Head Down / Microsleep
+                if self._state == DetectionState.HEAD_DOWN:
+                    hint = "Nguy hiểm! Đừng cúi đầu, hãy nhìn đường."
+                elif score > 50: 
                     hint = "Nguy hiểm! Dừng xe ngay lập tức!"
-                elif score > 30:
-                    hint = "Bạn đang buồn ngủ. Hãy tỉnh táo lại."
+                
+                # Priority 2: Distraction (Quay đầu) - User reported this was missing
+                elif self._state == DetectionState.DISTRACTED:
+                    hint = "Vui lòng tập trung lái xe."
+                
+                # Priority 3: Yawning
                 elif self._state == DetectionState.YAWNING:
                     hint = "Bạn đang ngáp nhiều. Hãy nghỉ ngơi."
                 
+                # Priority 4: General Drowsiness (High Score)
+                elif score > 30:
+                    hint = "Bạn đang buồn ngủ. Hãy tỉnh táo lại."
+                
                 if hint:
                     audio_manager.speak(hint)
+                    self._last_tts_time = curr_time
                     self._last_tts_time = curr_time
 
         # Âm thanh cảnh báo (Beep/Siren) vẫn chạy song song

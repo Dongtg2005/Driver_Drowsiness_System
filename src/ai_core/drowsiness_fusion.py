@@ -65,7 +65,7 @@ class HeadPoseTracker:
     - Cảnh báo (Distracted): Yaw < -20 hoặc > 20 (hoặc Pitch < -20).
     - Độ trễ (Time Delay): Chỉ báo động nếu trạng thái Distracted kéo dài quá 'distraction_threshold' giây.
     """
-    def __init__(self, safe_yaw_limit: float = 20.0, distraction_threshold: float = 2.0):
+    def __init__(self, safe_yaw_limit: float = 15.0, distraction_threshold: float = 2.0):
         self.safe_yaw_limit = safe_yaw_limit
         self.distraction_threshold = distraction_threshold # 2.0s delay
         
@@ -149,7 +149,7 @@ class DrowsinessFusion:
 
     def update(self, ear: float, mar: float, is_yawning: bool, pitch: float, 
                timestamp: Optional[float] = None, is_smiling: bool = False,
-               yaw: float = 0.0) -> dict: # [NEW] Added yaw param
+               yaw: float = 0.0, ear_threshold: float = 0.22) -> dict: # [NEW] Added yaw and ear_threshold param
         
         now = timestamp or time.time()
         self.last_update = now
@@ -174,10 +174,9 @@ class DrowsinessFusion:
             # treat as eye closed
             eye_contrib = self.eye_weight
         else:
-            # if ear below a small threshold consider partial closure
-            # [IMPROVED] Dùng adaptive threshold từ bên ngoài truyền vào thì tốt hơn,
-            # nhưng ở đây tạm dùng hard threshold thấp (0.22) để chắc chắn.
-            if ear < 0.22:
+            # if ear below threshold consider partial closure
+            # [IMPROVED] Dùng adaptive threshold từ bên ngoài truyền vào
+            if ear < ear_threshold:
                 eye_contrib = self.eye_weight
 
         if sunglasses:
