@@ -23,9 +23,9 @@ class SunglassesDetector:
     """
     
     def __init__(self,
-                 variance_threshold: float = 50.0,  # Ngưỡng variance (thấp hơn = có kính)
-                 history_size: int = 30,             # 1 giây @ 30fps
-                 confidence_threshold: float = 0.65): # 65% frames phải detect mới xác nhận
+                 variance_threshold: float = 15.0,  # [TUNED] Giảm từ 50 xuống 15 để tránh false positive trong phòng tối
+                 history_size: int = 30,
+                 confidence_threshold: float = 0.80): # [TUNED] Tăng độ tin cậy lên 80%
         """
         Args:
             variance_threshold: Ngưỡng variance - variance thấp hơn = có kính râm
@@ -130,19 +130,29 @@ class SunglassesDetector:
         is_low_variance = avg_variance < self.variance_threshold
         self.detection_history.append(is_low_variance)
         
-        # Smoothing: Tính tỷ lệ frames detect kính râm
-        if len(self.detection_history) >= 15:  # Cần ít nhất 15 frames
+        # Hysteresis Logic
+        # Bật cần ngưỡng cao (0.8), Tắt cần ngưỡng thấp (< 0.6) để tránh flicker
+        if len(self.detection_history) >= 15:
             detection_ratio = sum(self.detection_history) / len(self.detection_history)
-            is_wearing = detection_ratio >= self.confidence_threshold
+            
+            # Logic Hysteresis
+            if not getattr(self, 'current_state', False):
+                # Đang TẮT -> Muốn BẬT phải >= 0.8
+                if detection_ratio >= 0.80:
+                    self.current_state = True
+            else:
+                # Đang BẬT -> Muốn TẮT phải < 0.6
+                if detection_ratio < 0.60:
+                    self.current_state = False
             
             debug_info['confidence'] = detection_ratio
             debug_info['avg_variance'] = avg_variance
-            debug_info['is_wearing'] = is_wearing
+            debug_info['is_wearing'] = self.current_state
             
-            return is_wearing, debug_info
+            return self.current_state, debug_info
         
-        # Chưa đủ frames để quyết định
-        return False, debug_info
+        # Chưa đủ frames -> Giữ nguyên trạng thái cũ (mặc định False)
+        return getattr(self, 'current_state', False), debug_info
     
     def reset(self):
         """Reset detector state"""

@@ -362,7 +362,7 @@ class CameraView(ctk.CTkFrame):
                 self.alert_banner.configure(
                     text="PHÁT HIỆN KÍNH RÂM - Chế độ giám sát hành vi", 
                     height=40, 
-                    fg_color=(255, 140, 0)  # Orange
+                    fg_color="#FF8C00"  # Orange (Hex instead of Tuple)
                 )
             elif alert_level > 0:
                 msg = result.get('alert_message') or ("⚠️ CẢNH BÁO" if alert_level == 1 else "🚨 NGUY HIỂM")

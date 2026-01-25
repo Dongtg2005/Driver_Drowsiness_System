@@ -34,25 +34,46 @@ class DatabaseConnection:
         return cls._instance
     
     def _initialize_pool(self) -> None:
-        """Initialize the connection pool"""
+        """Initialize the connection pool (Supports both Local and Railway/URL)"""
         try:
+            from src.config.database import DATABASE_URL
+            from urllib.parse import urlparse
+            
+            # Parse settings from DATABASE_URL
+            # Expected format: mysql+mysqlconnector://user:pass@host:port/dbname
+            # We strip 'mysql+mysqlconnector://' to simple 'mysql://' for parsing transparency if needed,
+            # but urlparse handles schemes fine.
+            
+            parsed = urlparse(DATABASE_URL)
+            
+            # Extract params
+            _host = parsed.hostname
+            _port = parsed.port or 3306
+            _user = parsed.username
+            _password = parsed.password
+            _db_name = parsed.path.lstrip('/')
+            
             self._pool = pooling.MySQLConnectionPool(
                 pool_name="drowsiness_pool",
                 pool_size=5,
                 pool_reset_session=True,
-                host=config.DB_HOST,
-                port=config.DB_PORT,
-                database=config.DB_NAME,
-                user=config.DB_USER,
-                password=config.DB_PASSWORD,
+                host=_host,
+                port=_port,
+                database=_db_name,
+                user=_user,
+                password=_password,
                 charset='utf8mb4',
                 collation='utf8mb4_unicode_ci',
                 autocommit=False
             )
-            print("✅ Database connection pool created successfully!")
+            print(f"✅ Database connection pool created successfully! (Host: {_host})")
         except Error as e:
             print(f"❌ Error creating connection pool: {e}")
             self._pool = None
+        except Exception as ex:
+             print(f"❌ config error: {ex}. Falling back to config.py defaults...")
+             # Fallback logic could go here if needed
+             self._pool = None
     
     def get_connection(self):
         """Get a connection from the pool"""

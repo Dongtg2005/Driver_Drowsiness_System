@@ -43,7 +43,7 @@ class Config:
     DB_PORT = int(os.getenv("DB_PORT", 3306))
     DB_NAME = os.getenv("DB_NAME", "drowsiness_db")
     DB_USER = os.getenv("DB_USER", "root")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "12345") 
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "123456") 
 
     # ----------------------------------
     # 4. AUDIO & ALERTS (Phần bạn đang thiếu)
@@ -80,7 +80,7 @@ class Config:
     
     # Góc đầu (Độ) - Tăng ngưỡng để giảm false positive
     HEAD_PITCH_THRESHOLD = 35.0 # Cúi đầu (góc âm = cúi đầu)
-    HEAD_YAW_THRESHOLD = 40.0   # Quay trái/phải
+    HEAD_YAW_THRESHOLD = 20.0   # Quay trái/phải (> 20 độ là mất tập trung)
 
     # ----------------------------------
     # 6. CAMERA SETTINGS
