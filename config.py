@@ -56,6 +56,17 @@ class Config:
     SOUND_LEVEL_3 = os.path.join(SOUNDS_DIR, "level3_siren.wav")   # Khẩn cấp
 
     # ----------------------------------
+    # 4.1 EMAIL NOTIFICATION
+    # ----------------------------------
+    SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+    SENDER_EMAIL = os.getenv("SENDER_EMAIL", "")
+    SENDER_PASSWORD = os.getenv("SENDER_PASSWORD", "")
+    RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL", "")
+    
+    EMAIL_COOLDOWN = 300  # 5 phút (300 giây) giữa các email cảnh báo
+
+    # ----------------------------------
     # 5. DETECTION THRESHOLDS (Mặc định)
     # ----------------------------------
     # Ngưỡng mắt (EAR): Càng nhỏ càng dễ báo nhắm mắt

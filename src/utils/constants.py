@@ -24,6 +24,7 @@ class AlertLevel(IntEnum):
     WARNING = 1      # Cảnh báo nhẹ (Beep)
     ALARM = 2       # Nguy hiểm (Alarm)
     CRITICAL = 3     # Khẩn cấp (Siren)
+    SOS = 4          # [NEW] Cấp độ cao nhất (Email)
 
 
 class DetectionState(Enum):
@@ -104,7 +105,8 @@ class Colors:
             AlertLevel.NONE: Colors.GREEN,
             AlertLevel.WARNING: Colors.YELLOW,
             AlertLevel.ALARM: Colors.ORANGE, # Sửa DANGER thành ALARM cho khớp Enum
-            AlertLevel.CRITICAL: Colors.RED
+            AlertLevel.CRITICAL: Colors.RED,
+            AlertLevel.SOS: Colors.RED # SOS cũng màu đỏ hoặc flashing (logic vẽ sẽ xử lý)
         }
         return color_map.get(level, Colors.GREEN)
 
@@ -143,6 +145,7 @@ class Messages:
     STATUS_DANGER = "NGUY HIỂM: Nguy cơ ngủ gật"
     STATUS_CRITICAL = "KHẨN CẤP: Dừng xe ngay"
     STATUS_YAWN = "NGÁP: Có dấu hiệu mệt mỏi - hãy nghỉ ngơi"
+    STATUS_SOS = "SOS: NGỦ GẬT QUÁ LÂU (>4s)"  # [NEW] Status SOS
     
     # Alert messages
     ALERT_EYES_CLOSED = "Mắt nhắm quá lâu - có nguy cơ ngủ gật"

@@ -32,6 +32,7 @@ from src.ai_core.sunglasses_detector import SunglassesDetector  # [NEW] Sunglass
 from src.models.alert_model import alert_model, session_model
 from src.utils.constants import AlertType, AlertLevel, DetectionState, Colors, Messages
 from src.utils.audio_manager import audio_manager
+from src.utils.email_sender import email_sender
 from src.utils.logger import logger
 
 
@@ -103,20 +104,36 @@ class MonitorController:
         self._auto_sunglasses_detected = False  # [NEW] Auto-detection result
         self._sunglasses_notification_cooldown = 30.0  # 30 giây cooldown
         
+        # User & Email
+        self._user_email: Optional[str] = config.RECIPIENT_EMAIL
+        self._alarm_start_time: Optional[float] = None
+        
         # User settings storage (for sunglasses_mode, etc.)
         self._user_settings: Optional[Dict] = None
-    
+
     def set_user(self, user_id: int) -> None:
         self._user_id = user_id
         try:
-            from src.models.user_model import user_model
-            settings = user_model.get_user_settings(user_id)
-            if settings:
+            from src.database.db_connection import execute_query
+            
+            # 1. Fetch User Profile (Email)
+            user_rows = execute_query("SELECT email, full_name FROM users WHERE id = %s", (user_id,), fetch=True)
+            if user_rows and len(user_rows) > 0:
+                user_data = user_rows[0]
+                if user_data.get('email'):
+                    self._user_email = user_data['email']
+                    logger.info(f"📧 Alert recipient set to user email: {self._user_email}")
+
+            # 2. Fetch Settings
+            rows = execute_query("SELECT * FROM user_settings WHERE user_id = %s", (user_id,), fetch=True)
+            if rows and len(rows) > 0:
+                settings = rows[0]
                 self._user_settings = settings  # [FIX] Store full settings for runtime flags like sunglasses_mode
-                self._ear_threshold = settings.get('ear_threshold', config.EAR_THRESHOLD)
-                self._mar_threshold = settings.get('mar_threshold', config.MAR_THRESHOLD)
-                self._head_threshold = settings.get('head_threshold', config.HEAD_PITCH_THRESHOLD)
-                audio_manager.set_volume(settings.get('alert_volume', config.ALERT_VOLUME))
+                self._ear_threshold = float(settings.get('ear_threshold', config.EAR_THRESHOLD))
+                self._mar_threshold = float(settings.get('mar_threshold', config.MAR_THRESHOLD))
+                self._head_threshold = float(settings.get('head_threshold', config.HEAD_PITCH_THRESHOLD))
+                vol = settings.get('alert_volume', config.ALERT_VOLUME)
+                audio_manager.set_volume(float(vol) if vol is not None else 1.0)
                 logger.info(f"Loaded settings for user {user_id}")
         except Exception as e:
             logger.error(f"Error loading user settings: {e}")
@@ -177,22 +194,7 @@ class MonitorController:
         logger.log_session_start(self._user_id or 0)
         return True
 
-    def set_user(self, user_id: int) -> None:
-        self._user_id = user_id
-        try:
-            from src.database.db_connection import execute_query
-            # Fetch settings directly using raw SQL
-            rows = execute_query("SELECT * FROM user_settings WHERE user_id = %s", (user_id,), fetch=True)
-            if rows and len(rows) > 0:
-                settings = rows[0]
-                self._ear_threshold = float(settings.get('ear_threshold', config.EAR_THRESHOLD))
-                self._mar_threshold = float(settings.get('mar_threshold', config.MAR_THRESHOLD))
-                self._head_threshold = float(settings.get('head_threshold', config.HEAD_PITCH_THRESHOLD))
-                vol = settings.get('alert_volume', config.ALERT_VOLUME)
-                audio_manager.set_volume(float(vol) if vol is not None else 1.0)
-                logger.info(f"Loaded settings for user {user_id}")
-        except Exception as e:
-            logger.error(f"Error loading user settings: {e}")
+    # [REMOVED DUPLICATE set_user]
     
     def stop_monitoring(self) -> None:
         self._is_running = False
@@ -503,7 +505,18 @@ class MonitorController:
         
         # Xác định State & Alert Level
         if action == 'alarm':
-            self._alert_level = AlertLevel.ALARM
+            # Logic UPGRADE: Alarm -> Critical -> SOS
+            if self._alarm_start_time is None:
+                self._alarm_start_time = time.time()
+            
+            duration = time.time() - self._alarm_start_time
+            if duration > 4.0:
+                self._alert_level = AlertLevel.SOS
+            elif duration > 2.5:
+                self._alert_level = AlertLevel.CRITICAL
+            else:
+                self._alert_level = AlertLevel.ALARM
+
             # Đoán nguyên nhân chính để set state
             # Prioritize gaze distraction first (most immediate danger)
             if is_gaze_distracted: self._state = DetectionState.DISTRACTED
@@ -522,6 +535,7 @@ class MonitorController:
         else:
             self._alert_level = AlertLevel.NONE
             self._state = DetectionState.NORMAL
+            self._alarm_start_time = None  # Reset upgrade timer
         
         # Xử lý Trigger Alert
         if self._alert_level != AlertLevel.NONE:
@@ -599,7 +613,16 @@ class MonitorController:
         if self._last_alert_time and (curr_time - self._last_alert_time) < 0.5:
             return
 
-        if self._alert_level == AlertLevel.CRITICAL:
+        if self._alert_level == AlertLevel.SOS:
+            audio_manager.play_siren(loop=True)
+            # Gửi Email khẩn cấp (Asynchronous)
+            email_detail = f"Trạng thái: {self._state.value}. EAR: {self._current_ear:.2f}. Score: {score}"
+            email_sender.send_alert_email(
+                "🆘 SOS: NGỦ GẬT QUÁ LÂU (>4s)",
+                email_detail,
+                recipient=self._user_email
+            )
+        elif self._alert_level == AlertLevel.CRITICAL:
             audio_manager.play_siren(loop=True)
         elif self._alert_level == AlertLevel.ALARM:
             audio_manager.play_alarm()
@@ -663,7 +686,8 @@ class MonitorController:
 
     def _get_alert_message(self) -> str:
         if self._state == DetectionState.EYES_CLOSED:
-            if self._alert_level == AlertLevel.CRITICAL: return Messages.STATUS_CRITICAL
+            if self._alert_level == AlertLevel.SOS: return Messages.STATUS_SOS
+            elif self._alert_level == AlertLevel.CRITICAL: return Messages.STATUS_CRITICAL
             elif self._alert_level == AlertLevel.ALARM: return Messages.STATUS_DANGER
             else: return Messages.STATUS_WARNING
         elif self._state == DetectionState.YAWNING: return Messages.STATUS_YAWN
