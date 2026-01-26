@@ -80,6 +80,7 @@ class Colors:
     BG_DARK = "#1a1a1a"
     BG_CARD = "#2b2b2b"
     BG_INPUT = "#333333"
+    BORDER = "#404040" # [FIX] Added missing BORDER color
     PRIMARY = "#3B8ED0"
     SUCCESS = "#2CC985"
     DANGER = "#E53935"

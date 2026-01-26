@@ -32,6 +32,7 @@ from src.utils.audio_manager import audio_manager
 from src.models.user_model import User
 
 # Import views
+from src.views.account_view import AccountView  # [NEW]
 from src.views.login_view import LoginView
 from src.views.register_view import RegisterView
 from src.views.camera_view import CameraView
@@ -39,6 +40,10 @@ from src.views.dashboard_view import DashboardView
 from src.views.settings_view import SettingsView
 from src.views.calibration_view import CalibrationView
 from src.views.components import Colors, MessageBox
+
+    # ... existing methods ...
+
+
 
 class DriverDrowsinessApp:
     """Main Application Class"""
@@ -124,10 +129,11 @@ class DriverDrowsinessApp:
         self._clear_view()
         self.current_view = CameraView(
             self.root,
-            user=self.current_user, # Pass the whole user object
+            user=self.current_user,
             on_dashboard=self._show_dashboard,
             on_settings=self._show_settings,
-            on_logout=self._on_logout
+            on_logout=self._on_logout,
+            on_account=self._show_account
         )
         self.current_view.pack(fill="both", expand=True)
         app_logger.info("Showing camera view")
@@ -137,7 +143,7 @@ class DriverDrowsinessApp:
         self._clear_view()
         self.current_view = DashboardView(
             self.root,
-            user=self.current_user, # Pass the whole user object
+            user=self.current_user,
             on_back=self._show_camera
         )
         self.current_view.pack(fill="both", expand=True)
@@ -148,11 +154,24 @@ class DriverDrowsinessApp:
         self._clear_view()
         self.current_view = SettingsView(
             self.root,
-            user=self.current_user, # Pass the whole user object
-            on_back=self._show_camera
+            user=self.current_user,
+            on_back=self._show_camera,
+            on_account=self._show_account,
+            on_logout=self._on_logout  # [NEW] Pass callback for password change
         )
         self.current_view.pack(fill="both", expand=True)
         app_logger.info("Showing settings view")
+
+    def _show_account(self):
+        """Show account management view"""
+        self._clear_view()
+        self.current_view = AccountView(
+            self.root,
+            user=self.current_user,
+            on_back=self._show_camera
+        )
+        self.current_view.pack(fill="both", expand=True)
+        app_logger.info("Showing account view")
     
     # --- Handler updated to use User object ---
     def _on_login_success(self, user_object: User):
@@ -314,7 +333,8 @@ def main():
     except Exception as e:
         try:
             from src.utils.logger import logger
-            logger.error(f"Fatal error: {e}", exc_info=True)
+            logger.error(f"Fatal error: {e}")
+            # logger.error(traceback.format_exc()) # Optional: log traceback manually if needed
         except ImportError:
             pass
         print(f"❌ Fatal error: {e}")

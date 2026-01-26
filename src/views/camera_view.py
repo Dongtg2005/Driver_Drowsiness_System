@@ -32,7 +32,8 @@ class CameraView(ctk.CTkFrame):
     def __init__(self, master, user: Optional[User] = None,
                  on_dashboard: Optional[Callable] = None,
                  on_settings: Optional[Callable] = None,
-                 on_logout: Optional[Callable] = None):
+                 on_logout: Optional[Callable] = None,
+                 on_account: Optional[Callable] = None):
         """
         Create camera monitoring view.
         
@@ -42,6 +43,7 @@ class CameraView(ctk.CTkFrame):
             on_dashboard: Callback to open dashboard
             on_settings: Callback to open settings
             on_logout: Callback to logout
+            on_account: Callback to open account view
         """
         super().__init__(master, fg_color=Colors.BG_DARK)
         
@@ -49,6 +51,7 @@ class CameraView(ctk.CTkFrame):
         self.on_dashboard = on_dashboard
         self.on_settings = on_settings
         self.on_logout = on_logout
+        self.on_account = on_account
         
         # Camera state
         self.is_running = False
@@ -91,10 +94,12 @@ class CameraView(ctk.CTkFrame):
         
         # User info - now uses user.username directly
         if self.user:
-            StyledLabel(
+            StyledButton(
                 navbar,
                 text=f"👤 {self.user.username}",
-                style="normal"
+                command=self._on_account_click,
+                style="secondary", 
+                width=150
             ).pack(side="left", padx=20)
         
         btn_frame = StyledFrame(navbar, style="transparent")
@@ -402,8 +407,8 @@ class CameraView(ctk.CTkFrame):
                     if now - self._last_toast_time > 5:
                         msg = result.get('alert_message') or ("⚠️ Cảnh báo nhẹ" if alert_level == 1 else "🚨 Nguy hiểm")
                         style = "warning" if alert_level == 1 else "danger"
-                        # Đặt ở "top-right"
-                        self.toast_container.show_toast(message=msg, notification_type=style, position="top-right")
+                        # Đặt ở "top-center" theo yêu cầu người dùng
+                        self.toast_container.show_toast(message=msg, notification_type=style, position="top-center")
                         self._last_toast_time = now
         except Exception as e:
             # Bỏ qua lỗi UI khi widget đang bị hủy hoặc ảnh bị xóa
@@ -434,6 +439,9 @@ class CameraView(ctk.CTkFrame):
     def _on_logout_click(self):
         if MessageBox.ask_yes_no(self, "Xác nhận", "Bạn có chắc muốn đăng xuất?"):
             if self.on_logout: self.on_logout()
+
+    def _on_account_click(self):
+        if self.on_account: self.on_account()
     
     def cleanup(self):
         """Clean up resources before destroying the widget"""

@@ -14,19 +14,25 @@ import os
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from src.views.change_password_dialog import ChangePasswordDialog # [NEW]
 from src.views.components import (
     Colors, StyledButton, StyledLabel, StyledFrame,
     MessageBox
 )
+from src.utils.toast_notification import ToastContainer
 from src.controllers.settings_controller import settings_controller
 from src.utils.audio_manager import audio_manager
-from src.models.user_model import User # Import the User model
+from src.models.user_model import User
+
+# ...
 
 class SettingsView(ctk.CTkFrame):
     """Settings configuration view"""
     
     def __init__(self, master, user: Optional[User] = None,
-                 on_back: Optional[Callable] = None):
+                 on_back: Optional[Callable] = None,
+                 on_account: Optional[Callable] = None,
+                 on_logout: Optional[Callable] = None):
         """
         Create settings view.
         
@@ -34,11 +40,17 @@ class SettingsView(ctk.CTkFrame):
             master: Parent widget
             user: The logged-in User object
             on_back: Callback to go back
+            on_account: Callback to open account view
+            on_logout: Callback to logout (after password change)
         """
         super().__init__(master, fg_color=Colors.BG_DARK)
         
+        self.toast_container = ToastContainer(self.winfo_toplevel())
+        
         self.user = user
         self.on_back = on_back
+        self.on_account = on_account
+        self.on_logout = on_logout
         
         # Set user in settings controller
         if self.user:
@@ -176,10 +188,16 @@ class SettingsView(ctk.CTkFrame):
             StyledLabel(info_frame, text=f"Username: {self.user.username}", style="normal").pack(anchor="w")
             StyledLabel(info_frame, text=f"Email: {self.user.email or 'Chưa cập nhật'}", style="muted").pack(anchor="w")
         
+        if self.on_account:
+            StyledButton(
+                section, text="✏️ Chỉnh sửa thông tin", command=self.on_account,
+                style="info", width=150
+            ).pack(anchor="w", padx=20, pady=(10, 5))
+
         StyledButton(
             section, text="🔒 Đổi mật khẩu", command=self._show_change_password,
             style="secondary", width=150
-        ).pack(anchor="w", padx=20, pady=(10, 20))
+        ).pack(anchor="w", padx=20, pady=(5, 20))
     
     def _create_action_buttons(self, parent):
         """Create save and reset buttons"""
@@ -223,7 +241,7 @@ class SettingsView(ctk.CTkFrame):
         success, message = settings_controller.set_sensitivity_level(level)
         if success:
             self._load_settings()
-            MessageBox.show_success(self, "Thành công", f"Đã áp dụng mức độ: {level}")
+            self.toast_container.show_toast(f"Đã áp dụng mức độ: {level}", "success", position="top-center")
         else:
             MessageBox.show_error(self, "Lỗi", message)
     
@@ -240,7 +258,7 @@ class SettingsView(ctk.CTkFrame):
         success, message = settings_controller.update_settings(**settings_data)
         
         if success:
-            MessageBox.show_success(self, "Thành công", message)
+            self.toast_container.show_toast(message, "success", position="top-center")
         else:
             MessageBox.show_error(self, "Lỗi", message)
     
@@ -250,13 +268,13 @@ class SettingsView(ctk.CTkFrame):
             success, message = settings_controller.reset_to_defaults()
             if success:
                 self._load_settings()
-                MessageBox.show_success(self, "Thành công", "Đã khôi phục cài đặt mặc định!")
+                self.toast_container.show_toast("Đã khôi phục cài đặt mặc định!", "success", position="top-center")
             else:
                 MessageBox.show_error(self, "Lỗi", message)
     
     def _show_change_password(self):
-        """Show change password dialog (placeholder)."""
-        MessageBox.show_info(self, "Thông báo", "Tính năng này sẽ được phát triển trong các phiên bản sau.")
+        """Show change password dialog."""
+        ChangePasswordDialog(self, on_success=self.on_logout)
 
 if __name__ == "__main__":
     root = ctk.CTk()

@@ -215,6 +215,45 @@ class AuthController:
         finally:
             db.close()
 
+    def update_profile(self, full_name: str, email: str, phone: str = None, avatar_path: str = None) -> Tuple[bool, str]:
+        """
+        Updates current user's profile information.
+        """
+        if not self._current_user:
+            return False, "Chưa đăng nhập!"
+
+        # Input Validation
+        if email and not re.match(r"[^@]+@[^@]+\.[^@]+", email.strip()):
+            return False, "Email không hợp lệ!"
+            
+        db: Session = SessionLocal()
+        try:
+            user = db.query(User).filter(User.id == self._current_user.id).first()
+            if not user:
+                return False, "Không tìm thấy người dùng!"
+                
+            # Update fields
+            user.full_name = full_name.strip() if full_name else user.full_name
+            user.email = email.strip() if email else user.email
+            user.phone = phone.strip() if phone else user.phone
+            if avatar_path:
+                user.avatar = avatar_path
+            
+            db.commit()
+            
+            # Update local cache
+            self._current_user = user
+            
+            logger.info(f"Profile updated for user: {user.username}")
+            return True, "Cập nhật thông tin thành công!"
+            
+        except Exception as e:
+            logger.error(f"Error updating profile: {e}")
+            db.rollback()
+            return False, f"Lỗi: {str(e)}"
+        finally:
+            db.close()
+
 # --- Singleton Instance ---
 # The rest of the application will use this single instance.
 auth_controller = AuthController()

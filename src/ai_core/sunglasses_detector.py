@@ -40,6 +40,9 @@ class SunglassesDetector:
         self.detection_history = deque(maxlen=history_size)
         self.variance_history = deque(maxlen=history_size)
         
+        # State
+        self.current_state = False
+        
     def _calculate_eye_variance(self, 
                                 frame: np.ndarray, 
                                 eye_landmarks: list) -> Optional[float]:
@@ -136,7 +139,7 @@ class SunglassesDetector:
             detection_ratio = sum(self.detection_history) / len(self.detection_history)
             
             # Logic Hysteresis
-            if not getattr(self, 'current_state', False):
+            if not self.current_state:
                 # Đang TẮT -> Muốn BẬT phải >= 0.8
                 if detection_ratio >= 0.80:
                     self.current_state = True
@@ -152,7 +155,7 @@ class SunglassesDetector:
             return self.current_state, debug_info
         
         # Chưa đủ frames -> Giữ nguyên trạng thái cũ (mặc định False)
-        return getattr(self, 'current_state', False), debug_info
+        return self.current_state, debug_info
     
     def reset(self):
         """Reset detector state"""
