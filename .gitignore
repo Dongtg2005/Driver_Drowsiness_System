@@ -71,3 +71,7 @@ htmlcov/
 
 # mypy
 .mypy_cache/
+
+*.db
+*.db-shm
+*.db-wal

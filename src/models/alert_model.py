@@ -16,7 +16,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 # Import DB Connection & Constants
 from src.database.db_connection import execute_query
+from src.database.local_db import insert_alert # [NEW] Local Buffer first
 from src.utils.constants import AlertType, AlertLevel
+from src.utils.logger import logger
 
 class AlertModel:
     """
@@ -32,38 +34,86 @@ class AlertModel:
                   session_id: Optional[int] = None, **kwargs) -> Optional[int]:
         """
         Ghi log cảnh báo mới vào database.
-        Hàm này hỗ trợ nhận cả Enum hoặc giá trị nguyên thủy (str/int).
+        [STORE-AND-FORWARD]: Luôn ghi vào SQLite Local trước.
+        SyncService sẽ đẩy lên Cloud sau nếu có mạng.
         """
-        # 1. Chuẩn hóa dữ liệu đầu vào (Enum -> Value)
-        # MySQL không hiểu Python Enum, phải chuyển về String/Int
-        type_val = alert_type.value if hasattr(alert_type, 'value') else str(alert_type)
-        level_val = int(alert_level) # AlertLevel là IntEnum nên ép kiểu int là an toàn
-        
-        # 2. Câu lệnh SQL
-        query = """
-            INSERT INTO alert_history 
-            (user_id, alert_type, alert_level, ear_value, mar_value, 
-             head_pitch, head_yaw, duration_seconds, screenshot_path, timestamp)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        try:
+            # 1. Chuẩn hóa dữ liệu đầu vào (Enum -> Value)
+            type_val = alert_type.value if hasattr(alert_type, 'value') else str(alert_type)
+            level_val = int(alert_level) 
+            
+            # 2. Ghi vào Local SQLite
+            # Hàm insert_alert của local_db đã xử lý timestamp = NOW ở phía Python
+            local_id = insert_alert(
+                user_id=user_id,
+                alert_type=type_val,
+                alert_level=level_val,
+                ear_value=float(ear_value or 0),
+                mar_value=float(mar_value or 0),
+                head_pitch=float(head_pitch or 0),
+                head_yaw=float(head_yaw or 0),
+                duration=float(duration or 0),
+                perclos=float(perclos or 0)
+                # screenshot logic tạm thời chưa có cột trong local_db hoặc sẽ được thêm sau
+            )
+            
+            # logger.info(f"📝 Alert buffered to Local DB (ID: {local_id})")
+            return local_id
+            
+        except Exception as e:
+            logger.error(f"❌ Error logging alert to Local DB: {e}")
+            return None
+
+    def sync_to_cloud(self, user_id: int, alert_type: Union[AlertType, str], 
+                  alert_level: Union[AlertLevel, int], ear_value: float = 0.0,
+                  mar_value: float = 0.0, head_pitch: float = 0.0,
+                  head_yaw: float = 0.0, duration: float = 0.0,
+                  screenshot_path: str = None, perclos: float = 0.0,
+                  timestamp: str = None, **kwargs) -> bool:
         """
-        
-        # 3. Tham số (lưu các trường chính; `perclos` được chấp nhận nhưng không
-        #    được lưu vào bảng mặc định nếu schema không chứa cột tương ứng).
-        params = (
-            user_id,
-            type_val,       # Ví dụ: 'DROWSY'
-            level_val,      # Ví dụ: 3
-            float(ear_value or 0),
-            float(mar_value or 0),
-            float(head_pitch or 0),
-            float(head_yaw or 0),
-            float(duration or 0),
-            screenshot_path
-        )
-        
-        # 4. Thực thi
-        result_id = execute_query(query, params)
-        return result_id # Trả về ID của dòng vừa insert
+        [INTERNAL] Đẩy dữ liệu từ Local lên Cloud MySQL.
+        Hàm này CHỈ được gọi bởi SyncService.
+        """
+        try:
+            # 1. Chuẩn hóa dữ liệu
+            type_val = alert_type.value if hasattr(alert_type, 'value') else str(alert_type)
+            level_val = int(alert_level)
+            
+            # 2. Query Direct Insert Cloud
+            # Lưu ý: timestamp được truyền vào từ record SQLite (để giữ nguyên thời gian gốc)
+            # Nếu không có timestamp thì dùng NOW()
+            
+            if timestamp:
+                query = """
+                    INSERT INTO alert_history 
+                    (user_id, alert_type, alert_level, ear_value, mar_value, 
+                     head_pitch, head_yaw, duration_seconds, screenshot_path, timestamp)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                params = (
+                    user_id, type_val, level_val, 
+                    float(ear_value), float(mar_value), float(head_pitch), float(head_yaw), 
+                    float(duration), screenshot_path, timestamp
+                )
+            else:
+                query = """
+                    INSERT INTO alert_history 
+                    (user_id, alert_type, alert_level, ear_value, mar_value, 
+                     head_pitch, head_yaw, duration_seconds, screenshot_path, timestamp)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                """
+                params = (
+                    user_id, type_val, level_val, 
+                    float(ear_value), float(mar_value), float(head_pitch), float(head_yaw), 
+                    float(duration), screenshot_path
+                )
+            
+            result = execute_query(query, params)
+            return result is not None
+            
+        except Exception as e:
+            logger.error(f"❌ Error syncing alert to Cloud: {e}")
+            return False
 
     def get_daily_statistics(self, user_id: int, date: datetime = None) -> Dict:
         """
@@ -173,32 +223,38 @@ class DrivingSessionModel:
         """Bắt đầu phiên mới, đồng thời đóng các phiên cũ chưa đóng"""
         self.end_active_sessions(user_id)
         
+        now_local = datetime.now()
+        
         query = """
             INSERT INTO driving_sessions (user_id, start_time, status, total_alerts)
-            VALUES (%s, NOW(), 'ACTIVE', 0)
+            VALUES (%s, %s, 'ACTIVE', 0)
         """
-        return execute_query(query, (user_id,))
+        return execute_query(query, (user_id, now_local))
     
     def end_session(self, session_id: int) -> bool:
         """Kết thúc phiên hiện tại"""
         if not session_id: return False
         
+        now_local = datetime.now()
+        
         query = """
             UPDATE driving_sessions 
-            SET end_time = NOW(), status = 'COMPLETED'
+            SET end_time = %s, status = 'COMPLETED'
             WHERE id = %s
         """
-        result = execute_query(query, (session_id,))
-        return result is not None # execute_query trả về None nếu lỗi
+        result = execute_query(query, (now_local, session_id))
+        return result is not None 
     
     def end_active_sessions(self, user_id: int) -> None:
         """Dọn dẹp các session bị treo (do tắt máy đột ngột)"""
+        now_local = datetime.now()
+        
         query = """
             UPDATE driving_sessions 
-            SET end_time = NOW(), status = 'INTERRUPTED'
+            SET end_time = %s, status = 'INTERRUPTED'
             WHERE user_id = %s AND status = 'ACTIVE'
         """
-        execute_query(query, (user_id,))
+        execute_query(query, (now_local, user_id))
     
     def update_session_counts(self, session_id: int, alert_type: Union[AlertType, str]) -> bool:
         """

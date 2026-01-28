@@ -99,57 +99,62 @@ class ToastNotification(ctk.CTkToplevel):
         self.after_id = self.after(self.duration, self.close)
 
     def _animate_in(self):
-        # Get dimensions
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
+        if not self.winfo_exists(): return
         
-        # Use master geometry if possible to position relative to window
         try:
-            parent_x = self.master.winfo_rootx()
-            parent_y = self.master.winfo_rooty()
-            parent_w = self.master.winfo_width()
-            parent_h = self.master.winfo_height()
-        except:
-            # Fallback to screen coordinates
-            parent_x, parent_y = 0, 0
-            parent_w, parent_h = screen_width, screen_height
+            # Get dimensions
+            screen_width = self.winfo_screenwidth()
+            screen_height = self.winfo_screenheight()
+            
+            # Use master geometry if possible to position relative to window
+            try:
+                parent_x = self.master.winfo_rootx()
+                parent_y = self.master.winfo_rooty()
+                parent_w = self.master.winfo_width()
+                parent_h = self.master.winfo_height()
+            except:
+                # Fallback to screen coordinates
+                parent_x, parent_y = 0, 0
+                parent_w, parent_h = screen_width, screen_height
 
-        # Calculate target positions
-        pad = 20
-        if self.position == "top-center":
-            target_x = parent_x + (parent_w - self.width) // 2
-            target_y = parent_y + pad + 20 # A bit lower
-            start_y = parent_y - self.height
-        elif self.position == "top-right":
-            target_x = parent_x + parent_w - self.width - pad
-            target_y = parent_y + pad
-            start_y = parent_y - self.height 
-        elif self.position == "bottom-right":
-            target_x = parent_x + parent_w - self.width - pad
-            target_y = parent_y + parent_h - self.height - pad
-            start_y = parent_y + parent_h + self.height 
-        else:
-             target_x = parent_x + parent_w - self.width - pad
-             target_y = parent_y + pad
-             start_y = parent_y - self.height
+            # Calculate target positions
+            pad = 20
+            if self.position == "top-center":
+                target_x = parent_x + (parent_w - self.width) // 2
+                target_y = parent_y + pad + 20 # A bit lower
+                start_y = parent_y - self.height
+            elif self.position == "top-right":
+                target_x = parent_x + parent_w - self.width - pad
+                target_y = parent_y + pad
+                start_y = parent_y - self.height 
+            elif self.position == "bottom-right":
+                target_x = parent_x + parent_w - self.width - pad
+                target_y = parent_y + parent_h - self.height - pad
+                start_y = parent_y + parent_h + self.height 
+            else:
+                 target_x = parent_x + parent_w - self.width - pad
+                 target_y = parent_y + pad
+                 start_y = parent_y - self.height
 
-        # Animation logic: Interpolate Y and Alpha
-        progress = self.animation_frame / self.max_animation_frames
-        eased_progress = 1 - (1 - progress) ** 3
-        
-        current_y = start_y + (target_y - start_y) * eased_progress
-        
-        # Update Geometry
-        self.geometry(f"{self.width}x{self.height}+{int(target_x)}+{int(current_y)}")
-        self.attributes("-alpha", min(1.0, progress * 1.5)) # Fade in
-        
-        if self.animation_frame < self.max_animation_frames:
-            self.animation_frame += 1
-            self.after(16, self._animate_in)
-        else:
-             # Ensure final position
-             self.geometry(f"{self.width}x{self.height}+{int(target_x)}+{int(target_y)}")
-             self.attributes("-alpha", 1.0)
+            # Animation logic: Interpolate Y and Alpha
+            progress = self.animation_frame / self.max_animation_frames
+            eased_progress = 1 - (1 - progress) ** 3
+            
+            current_y = start_y + (target_y - start_y) * eased_progress
+            
+            # Update Geometry
+            self.geometry(f"{self.width}x{self.height}+{int(target_x)}+{int(current_y)}")
+            self.attributes("-alpha", min(1.0, progress * 1.5)) # Fade in
+            
+            if self.animation_frame < self.max_animation_frames:
+                self.animation_frame += 1
+                self.after(16, self._animate_in)
+            else:
+                 # Ensure final position
+                 self.geometry(f"{self.width}x{self.height}+{int(target_x)}+{int(target_y)}")
+                 self.attributes("-alpha", 1.0)
+        except Exception:
+            pass
 
     def close(self):
         if self.is_closing: return
@@ -158,14 +163,18 @@ class ToastNotification(ctk.CTkToplevel):
         self._animate_out()
 
     def _animate_out(self, frame=0):
-        max_frames = 15
-        if frame < max_frames:
-            alpha = 1.0 - (frame / max_frames)
-            self.attributes("-alpha", alpha)
-            self.after(16, lambda: self._animate_out(frame + 1))
-        else:
-            self.destroy()
-            if self.on_close: self.on_close()
+        if not self.winfo_exists(): return
+        try:
+            max_frames = 15
+            if frame < max_frames:
+                alpha = 1.0 - (frame / max_frames)
+                self.attributes("-alpha", alpha)
+                self.after(16, lambda: self._animate_out(frame + 1))
+            else:
+                self.destroy()
+                if self.on_close: self.on_close()
+        except:
+            pass
 
 
 class ToastContainer:

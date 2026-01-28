@@ -317,6 +317,7 @@ class CameraView(ctk.CTkFrame):
         """Main monitoring loop"""
         try:
             while self.is_running and self.cap and self.cap.isOpened():
+                start_time = time.time()
                 ret, frame = self.cap.read()
                 if not ret:
                     time.sleep(0.01)
@@ -329,7 +330,12 @@ class CameraView(ctk.CTkFrame):
                     break
                     
                 self.after(0, lambda r=result: self._update_ui(r))
-                time.sleep(0.03)
+                self.after(0, lambda r=result: self._update_ui(r))
+                
+                # Smart sleep to maintain target FPS
+                process_time = time.time() - start_time
+                delay = max(0, (1.0 / config.TARGET_FPS) - process_time)
+                time.sleep(delay)
         except Exception as e:
             print(f"❌ Camera thread crashed: {e}")
             import traceback

@@ -22,7 +22,7 @@ import random
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from config import config
-from src.ai_core.face_mesh import FaceMeshDetector
+from src.ai_core.face_mesh import FaceMeshDetector, FaceLandmarks
 from src.ai_core.features import FeatureExtractor
 from src.ai_core.head_pose import HeadPoseEstimator
 from src.ai_core.drawer import FrameDrawer
@@ -113,30 +113,48 @@ class MonitorController:
 
     def set_user(self, user_id: int) -> None:
         self._user_id = user_id
+        
+        from src.database.db_connection import execute_query, get_db
+        
+        # [OFFLINE-FIRST] Proactive Check
+        if get_db().is_offline:
+            logger.warning("[OFFLINE][CONFIG] System running with Default Config (Network Unavailable)")
+            # Set default thresholds immediately
+            self._user_email = "offline@local"
+            # Default thresholds are already set in __init__ from config.py
+            return
+
         try:
-            from src.database.db_connection import execute_query
-            
             # 1. Fetch User Profile (Email)
-            user_rows = execute_query("SELECT email, full_name FROM users WHERE id = %s", (user_id,), fetch=True)
-            if user_rows and len(user_rows) > 0:
-                user_data = user_rows[0]
-                if user_data.get('email'):
-                    self._user_email = user_data['email']
-                    logger.info(f"📧 Alert recipient set to user email: {self._user_email}")
+            # [OFFLINE-SAFE] Wrap in try-except to prevent blocking start-up
+            try:
+                user_rows = execute_query("SELECT email, full_name FROM users WHERE id = %s", (user_id,), fetch=True)
+                if user_rows and len(user_rows) > 0:
+                    user_data = user_rows[0]
+                    if user_data.get('email'):
+                        self._user_email = user_data['email']
+                        logger.info(f"📧 Alert recipient set to user email: {self._user_email}")
+            except Exception as e:
+                logger.warning(f"⚠️ [OFFLINE][PROFILE] Could not load user profile: {e}")
 
             # 2. Fetch Settings
-            rows = execute_query("SELECT * FROM user_settings WHERE user_id = %s", (user_id,), fetch=True)
-            if rows and len(rows) > 0:
-                settings = rows[0]
-                self._user_settings = settings  # [FIX] Store full settings for runtime flags like sunglasses_mode
-                self._ear_threshold = float(settings.get('ear_threshold', config.EAR_THRESHOLD))
-                self._mar_threshold = float(settings.get('mar_threshold', config.MAR_THRESHOLD))
-                self._head_threshold = float(settings.get('head_threshold', config.HEAD_PITCH_THRESHOLD))
-                vol = settings.get('alert_volume', config.ALERT_VOLUME)
-                audio_manager.set_volume(float(vol) if vol is not None else 1.0)
-                logger.info(f"Loaded settings for user {user_id}")
+            try:
+                rows = execute_query("SELECT * FROM user_settings WHERE user_id = %s", (user_id,), fetch=True)
+                if rows and len(rows) > 0:
+                    settings = rows[0]
+                    self._user_settings = settings  # [FIX] Store full settings for runtime flags like sunglasses_mode
+                    self._ear_threshold = float(settings.get('ear_threshold', config.EAR_THRESHOLD))
+                    self._mar_threshold = float(settings.get('mar_threshold', config.MAR_THRESHOLD))
+                    self._head_threshold = float(settings.get('head_threshold', config.HEAD_PITCH_THRESHOLD))
+                    vol = settings.get('alert_volume', config.ALERT_VOLUME)
+                    audio_manager.set_volume(float(vol) if vol is not None else 1.0)
+                    logger.info(f"Loaded settings for user {user_id}")
+            except Exception as e:
+                logger.warning(f"⚠️ [OFFLINE][SETTINGS] Could not load settings: {e}")
+                
         except Exception as e:
-            logger.error(f"Error loading user settings: {e}")
+            logger.error(f"Error initializing user data: {e}")
+            logger.warning("⚠️ [OFFLINE][CONFIG] System running with Default Config")
     
     def start_camera(self, camera_index: int = None) -> bool:
         if camera_index is None:
@@ -189,19 +207,44 @@ class MonitorController:
         except Exception as e:
             logger.error(f"Failed to sync PERCLOS threshold: {e}")
         
+        # [OFFLINE-SAFE SESSION START]
         if self._user_id:
-            self._session_id = session_model.start_session(self._user_id)
+            from src.database.db_connection import get_db
+            
+            # [OFFLINE-FIRST] Proactive Session Handling
+            if get_db().is_offline:
+                 # Create a local pseudo-session ID immediately
+                self._session_id = int(time.time() * -1) 
+                logger.info(f"ℹ️ [OFFLINE][SESSION] Started LOCAL session ID: {self._session_id}")
+            else:
+                try:
+                    self._session_id = session_model.start_session(self._user_id)
+                except Exception as e:
+                    logger.warning(f"⚠️ [OFFLINE][SESSION] Could not start remote session: {e}")
+                    # Fallback if is_offline was False but request failed
+                    self._session_id = int(time.time() * -1) 
+                    logger.info(f"ℹ️ [OFFLINE][SESSION] Started LOCAL session ID: {self._session_id}")
+
         logger.log_session_start(self._user_id or 0)
         return True
 
     # [REMOVED DUPLICATE set_user]
     
     def stop_monitoring(self) -> None:
+        if not self._is_running:
+            return
+            
         self._is_running = False
         duration = time.time() - self._start_time if self._start_time else 0.0
         
-        if self._session_id:
-            session_model.end_session(self._session_id)
+        # [OFFLINE-SAFE SESSION END]
+        if self._session_id and self._session_id > 0: # Only remote sessions are positive
+            from src.database.db_connection import get_db
+            if not get_db().is_offline:
+                try:
+                    session_model.end_session(self._session_id)
+                except Exception:
+                     logger.warning("⚠️ [OFFLINE][SESSION] Could not close remote session")
         
         audio_manager.stop()
         total_alerts = self._get_total_alerts()
@@ -228,7 +271,7 @@ class MonitorController:
         self._alert_level = AlertLevel.NONE
     
     def _get_total_alerts(self) -> int:
-        if self._session_id:
+        if self._session_id and self._session_id > 0: # Check remote session
             try:
                 s = session_model.get_session(self._session_id)
                 return sum([s.drowsy_count, s.yawn_count, s.head_down_count]) if s else 0
@@ -260,8 +303,33 @@ class MonitorController:
 
         self._update_fps()
 
-        # 2. Detect Face
-        faces = self.face_detector.detect(frame)
+        # 2. Detect Face (Optimized with Downscaling)
+        # Use 0.5 scale for faster detection (320x240 instead of 640x480)
+        DOWNSCALE_FACTOR = 0.5
+        small_frame = cv2.resize(frame, None, fx=DOWNSCALE_FACTOR, fy=DOWNSCALE_FACTOR)
+        
+        faces_small = self.face_detector.detect(small_frame)
+        faces = []
+        
+        # Scale landmarks back up
+        if faces_small:
+            inv_scale = 1.0 / DOWNSCALE_FACTOR
+            original_h, original_w = frame.shape[:2]
+            
+            for face in faces_small:
+                # Reconstruct FaceLandmarks with simple scaling
+                scaled_pixel_landmarks = [
+                    (int(x * inv_scale), int(y * inv_scale)) 
+                    for x, y in face.pixel_landmarks
+                ]
+                
+                # Create new FaceLandmarks object with original frame dimensions
+                faces.append(FaceLandmarks(
+                    landmarks=face.landmarks, # Normalized landmarks stay same
+                    pixel_landmarks=scaled_pixel_landmarks,
+                    image_width=original_w,
+                    image_height=original_h
+                ))
         
         # Default Data Package
         data = {
@@ -669,15 +737,18 @@ class MonitorController:
 
     def _async_log_task(self, data: Dict):
         try:
-            alert_model.log_alert(
-                user_id=data['user_id'], alert_type=data['alert_type'],
-                alert_level=data['alert_level'], ear_value=data['ear'],
-                mar_value=data['mar'], head_pitch=data['pitch'],
-                head_yaw=data['yaw'], duration=data['duration'],
-                perclos=data['perclos']
-            )
-            if data['session_id']:
-                session_model.update_session_counts(data['session_id'], data['alert_type'])
+            # [PHASE 1] Local First Architecture
+            # Ghi vào SQLite (nhanh, không lag, không cần mạng)
+            from src.database.local_db import log_alert_local
+            log_alert_local(data)
+            
+            # [TODO: PHASE 2] Phần cập nhật Session vẫn giữ tạm ở Remote DB để UI hiển thị realtime
+            # (Vì Session ít khi update hơn Alert liên tục)
+            if data.get('session_id'):
+                try:
+                    session_model.update_session_counts(data['session_id'], data['alert_type'])
+                except Exception:
+                    pass # Fail silently if network error, priority is local log
             
             logger.log_alert(data['alert_type'].value, int(data['alert_level']), 
                            data['ear'], data['mar'], data['pitch'], data['perclos'])

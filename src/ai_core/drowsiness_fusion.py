@@ -135,6 +135,7 @@ class DrowsinessFusion:
         self.sunglasses_window = sunglasses_window
         self.sunglasses_threshold = sunglasses_threshold
         self.sunglasses_detected_state = False
+        self.in_alarm_state = False # [NEW] Hysteresis State
         self.last_update = time.time()
 
     def _purge_ear(self, now: float):
@@ -253,12 +254,26 @@ class DrowsinessFusion:
         # Clamp
         if self.score < 0: self.score = 0
 
-        # Determine alert action
+        # Determine alert action with Hysteresis (Schmitt Trigger)
+        # Prevent "flickering" alerts (Bật/Tắt liên tục)
         action = None
-        if self.score > 30:
-            action = 'alarm'
-        elif self.score > 15:
-            action = 'beep'
+        
+        if not self.in_alarm_state:
+            # Normal State -> Check Triggers
+            if self.score > 30:
+                action = 'alarm'
+                self.in_alarm_state = True
+            elif self.score > 15:
+                action = 'beep'
+        else:
+            # Alarm State -> Check Recovery
+            # Chỉ tắt Alarm khi Score giảm sâu xuống dưới 15 (Vùng an toàn)
+            if self.score < 15:
+                self.in_alarm_state = False
+                action = None
+            else:
+                # Giữ nguyên trạng thái Alarm dù Score có giảm nhẹ (vd 35 -> 25)
+                action = 'alarm'
 
         return {
             'score': int(self.score),
@@ -266,9 +281,10 @@ class DrowsinessFusion:
             'nod': nod_detected,
             'distracted': is_distracted,
             'distraction_duration': distraction_duration,
-            'gaze_distracted': is_gaze_distracted,  # [NEW]
-            'gaze_duration': gaze_duration,  # [NEW]
-            'action': action
+            'gaze_distracted': is_gaze_distracted,
+            'gaze_duration': gaze_duration,
+            'action': action,
+            'in_alarm': self.in_alarm_state # Debug
         }
 
 

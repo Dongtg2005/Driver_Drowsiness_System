@@ -84,9 +84,56 @@ class DriverDrowsinessApp:
         self.current_user: Optional[User] = None
         self.current_view: Optional[ctk.CTkFrame] = None
         
+        # [NEW] Start Background Sync
+        from src.services.sync_service import sync_service
+        sync_service.start()
+        
+        # [NEW] Register Network Restore Callback (Event-Driven)
+        from src.database.db_connection import get_db
+        get_db().set_on_network_restored_callback(self._handle_network_restored)
+        
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         
         self._show_login()
+
+    def _handle_network_restored(self):
+        """Callback from DB thread when network is restored"""
+        # GUI actions must be on Main Thread
+        try:
+             self.root.after(0, self._perform_network_restore_action)
+        except Exception:
+             pass
+
+    def _perform_network_restore_action(self):
+        """Force logout if currently in Guest mode upon network restoration"""
+        # Only intervene if we have a current user and they are a Guest (-1)
+        if self.current_user and hasattr(self.current_user, 'id') and int(self.current_user.id) < 0:
+            app_logger.info("🌐 [NETWORK] Online restored. Invalidating Guest Session.")
+            
+            # 1. Stop Monitoring if active
+            try:
+                from src.controllers.monitor_controller import get_monitor_controller
+                monitor = get_monitor_controller()
+                if monitor.is_running():
+                    monitor.stop_monitoring()
+            except Exception as e:
+                app_logger.warning(f"Error stopping monitor during restore: {e}")
+
+            # 2. Cleanup & Logout
+            self.current_user = None
+            audio_manager.stop()
+            
+            # 3. Redirect to Login
+            self._show_login()
+            
+            # 4. Show Notification (Toast)
+            # Need to wait slightly for view to load
+            def show_reason():
+                try:
+                    MessageBox.show_info(self.root, "Kết nối mạng đã khôi phục.\nVui lòng đăng nhập lại để đồng bộ dữ liệu.")
+                except:
+                    pass
+            self.root.after(500, show_reason)
     
     def run(self):
         """Start the application"""
@@ -283,6 +330,10 @@ class DriverDrowsinessApp:
                     audio_manager.cleanup()
                     if self.current_view and hasattr(self.current_view, 'cleanup'):
                         self.current_view.cleanup()
+                    
+                    # Stop Sync Service
+                    from src.services.sync_service import sync_service
+                    sync_service.stop()
                 except: 
                     pass
                 
@@ -307,6 +358,10 @@ class DriverDrowsinessApp:
             audio_manager.stop()
             if self.current_view and hasattr(self.current_view, 'cleanup'):
                 self.current_view.cleanup()
+            
+            # Stop Sync Service
+            from src.services.sync_service import sync_service
+            sync_service.stop()
             
             # Hủy GUI
             self.root.quit()
