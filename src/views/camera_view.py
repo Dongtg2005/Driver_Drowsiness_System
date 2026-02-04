@@ -330,7 +330,6 @@ class CameraView(ctk.CTkFrame):
                     break
                     
                 self.after(0, lambda r=result: self._update_ui(r))
-                self.after(0, lambda r=result: self._update_ui(r))
                 
                 # Smart sleep to maintain target FPS
                 process_time = time.time() - start_time
