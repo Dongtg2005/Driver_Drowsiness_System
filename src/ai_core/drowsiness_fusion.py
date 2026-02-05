@@ -112,7 +112,7 @@ class DrowsinessFusion:
                  nod_weight: int = 2,
                  head_weight: int = 2,
                  gaze_weight: int = 2,
-                 eye_weight: int = 1,
+                 eye_weight: int = 2, # [TUNING] Tăng trọng số mắt để nhạy hơn với FPS thấp
                  sunglasses_window: float = 3.0,
                  sunglasses_threshold: float = 0.20):
         self.score = 0
@@ -157,24 +157,12 @@ class DrowsinessFusion:
         self._purge_ear(now)
 
         # detect sunglasses: AUTO detection HOẶC manual mode
-        auto_sunglasses = False
-        if not manual_sunglasses_mode:
-            low_ear_count = sum(1 for t, e in self.ear_history if e <= self.sunglasses_threshold)
-            total_samples = len(self.ear_history)
-            
-            if total_samples >= 60:
-                ear_values = [e for t, e in self.ear_history]
-                low_ear_ratio = low_ear_count / total_samples
-                
-                # Hysteresis
-                if self.sunglasses_detected_state:
-                    auto_sunglasses = (low_ear_ratio >= 0.40)
-                else:
-                    auto_sunglasses = (low_ear_ratio >= 0.70)
-                
-                self.sunglasses_detected_state = auto_sunglasses
+        # [FIX] Bỏ logic đoán kính râm dựa trên lịch sử EAR thấp (low_ear_ratio).
+        # Lý do: Nếu tài xế ngủ gật (nhắm mắt > 2s), logic cũ sẽ nhầm là đeo kính và tắt báo động -> NGUY HIỂM.
+        # Bây giờ hoàn toàn tin tưởng vào 'manual_sunglasses_mode' (được Controller gửi vào, 
+        # bao gồm cả thuật toán Computer Vision soi pixel đen/đeo kính thực sự).
         
-        sunglasses = manual_sunglasses_mode or auto_sunglasses
+        sunglasses = manual_sunglasses_mode
         
         # nod detection
         nod_detected = self.nod_detector.update(pitch, now)
@@ -208,11 +196,11 @@ class DrowsinessFusion:
             if sunglasses:
                 # Có kính râm -> Mắt nhắm là tín hiệu yếu (Unreliable)
                 if pitch < -10.0:
-                    # NHƯNG nếu đầu đang cúi -> Xác nhận buồn ngủ -> Full Weight
+                    # NHƯNG nếu đầu đang cúi -> Xác nhận buồn ngủ -> Full Weight (nguy hiểm)
                     eye_contrib = self.eye_weight
                 else:
-                    # Đầu thẳng -> Chỉ là do kính -> Giảm 50% trọng số (hoặc 0 nếu muốn strict)
-                    eye_contrib = int(self.eye_weight * 0.5)
+                    # Đầu thẳng -> Chỉ là do kính -> Bỏ qua hoàn toàn (0 điểm) để tránh báo ảo
+                    eye_contrib = 0
             else:
                 # Không kính -> Tin cậy hoàn toàn
                 eye_contrib = self.eye_weight
@@ -229,7 +217,8 @@ class DrowsinessFusion:
             self.score += self.yawn_weight
             
         if nod_detected:
-            self.score += self.nod_weight
+            # [CRITICAL] Gật đầu là dấu hiệu nguy hiểm nhất -> BÁO ĐỘNG NGAY
+            self.score += 35 
             
         # [NEW] Cộng điểm nếu bị phân tâm (head pose)
         if is_distracted:
@@ -247,6 +236,11 @@ class DrowsinessFusion:
         is_normal = (eye_contrib == 0 and not is_yawning and not nod_detected 
                     and not is_distracted and not is_gaze_distracted)
         
+        # [SMART RESET] Rapid recovery if eyes are wide open
+        # Fix vấn đề "Oan ức": PERCLOS cao nhưng hiện tại mắt đã mở to -> Phải tắt báo động ngay
+        if ear > (ear_threshold + 0.05) and not is_yawning and not is_bad_pose and not is_distracted:
+            self.score = max(0, self.score - 10) # Fast decay (Giảm cực nhanh)
+
         if is_normal or is_smiling:
             decay = self.decay * 3 if is_smiling else self.decay # Cười giúp tỉnh táo -> giảm nhanh hơn
             self.score = max(0, self.score - decay)
@@ -260,19 +254,21 @@ class DrowsinessFusion:
         
         if not self.in_alarm_state:
             # Normal State -> Check Triggers
-            if self.score > 30:
+            # [TUNING FINAL] EyeWeight=2. FPS ~15-20.
+            # 40 score = ~1.5s (Beep)
+            # 80 score = ~3.0s (Alarm)
+            if self.score > 80:
                 action = 'alarm'
                 self.in_alarm_state = True
-            elif self.score > 15:
+            elif self.score > 40:
                 action = 'beep'
         else:
             # Alarm State -> Check Recovery
-            # Chỉ tắt Alarm khi Score giảm sâu xuống dưới 15 (Vùng an toàn)
-            if self.score < 15:
+            # Tắt Alarm khi Score giảm sâu xuống dưới 30
+            if self.score < 30:
                 self.in_alarm_state = False
                 action = None
             else:
-                # Giữ nguyên trạng thái Alarm dù Score có giảm nhẹ (vd 35 -> 25)
                 action = 'alarm'
 
         return {

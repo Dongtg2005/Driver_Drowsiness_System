@@ -22,7 +22,7 @@ import random
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from config import config
-from src.ai_core.face_mesh import FaceMeshDetector, FaceLandmarks
+from src.ai_core.face_mesh import get_face_mesh, FaceLandmarks
 from src.ai_core.features import FeatureExtractor
 from src.ai_core.head_pose import HeadPoseEstimator
 from src.ai_core.drawer import FrameDrawer
@@ -34,6 +34,8 @@ from src.utils.constants import AlertType, AlertLevel, DetectionState, Colors, M
 from src.utils.audio_manager import audio_manager
 from src.utils.email_sender import email_sender
 from src.utils.logger import logger
+from src.utils.threaded_camera import ThreadedCamera # [OPTIMIZATION]
+
 
 
 class MonitorController:
@@ -44,14 +46,15 @@ class MonitorController:
     
     def __init__(self, user_id: int = None):
         # Components
-        self.face_detector = FaceMeshDetector()
+        # [OPTIMIZATION] Use Singleton for FaceMesh (Prevent double loading)
+        self.face_detector = get_face_mesh()
         self.feature_extractor = FeatureExtractor()
         self.head_pose_estimator = HeadPoseEstimator()
         self.frame_drawer = FrameDrawer()
         self.sunglasses_detector = SunglassesDetector()  # [NEW] Kính râm detector
         
         # Camera
-        self._camera: Optional[cv2.VideoCapture] = None
+        self._camera: Optional[ThreadedCamera] = None # [OPTIMIZATION] Changed type to ThreadedCamera
         self._is_running = False
         self._is_paused = False
         
@@ -62,6 +65,14 @@ class MonitorController:
         # Detection state
         self._state = DetectionState.NORMAL
         self._alert_level = AlertLevel.NONE
+        self._previous_alert_level = AlertLevel.NONE  # [NEW] Track for state machine
+        
+        # [NEW] Alert State Machine + Event Queue (prevents lag)
+        from collections import deque
+        self._alert_event_queue = deque()  # Queue alert events
+        self._alert_queue_lock = threading.Lock()  # Thread-safe access
+        self._alert_processor_thread: Optional[threading.Thread] = None
+        self._alert_processing_active = False
         
         # Counters (Bộ đếm)
         self._drowsy_frames = 0
@@ -75,8 +86,12 @@ class MonitorController:
         self._last_alert_time: Optional[float] = None
         self._last_tts_time: Optional[float] = None # Cooldown cho TTS
         self._frame_count = 0
+        self._global_frame_index = 0 # [PERFORMANCE] Monotonic counter for skipping
         self._fps = 0.0
         self._last_fps_time = time.time()
+        
+        # [PERFORMANCE] Cache results
+        self._last_faces_cache = []
         
         # Current values
         self._current_ear = 0.0
@@ -110,6 +125,9 @@ class MonitorController:
         
         # User settings storage (for sunglasses_mode, etc.)
         self._user_settings: Optional[Dict] = None
+        
+        # [NEW] Start alert processing thread
+        self._start_alert_processor()
 
     def set_user(self, user_id: int) -> None:
         self._user_id = user_id
@@ -160,13 +178,19 @@ class MonitorController:
         if camera_index is None:
             camera_index = config.CAMERA_INDEX
         try:
-            self._camera = cv2.VideoCapture(camera_index)
+            # [OPTIMIZATION] Use ThreadedCamera
+            self._camera = ThreadedCamera(
+                src=camera_index,
+                width=config.CAMERA_WIDTH,
+                height=config.CAMERA_HEIGHT,
+                fps=config.TARGET_FPS
+            )
+            
             if not self._camera.isOpened():
                 return False
-            self._camera.set(cv2.CAP_PROP_FRAME_WIDTH, config.CAMERA_WIDTH)
-            self._camera.set(cv2.CAP_PROP_FRAME_HEIGHT, config.CAMERA_HEIGHT)
-            self._camera.set(cv2.CAP_PROP_FPS, config.TARGET_FPS)
-            logger.info(f"Camera {camera_index} started")
+                
+            self._camera.start()
+            logger.info(f"Camera {camera_index} started (Threaded Mode)")
             return True
         except Exception as e:
             logger.error(f"Error starting camera: {e}")
@@ -174,7 +198,7 @@ class MonitorController:
     
     def stop_camera(self) -> None:
         if self._camera:
-            self._camera.release()
+            self._camera.stop()
             self._camera = None
     
     def start_monitoring(self, spawn_camera: bool = True) -> bool:
@@ -308,9 +332,19 @@ class MonitorController:
         DOWNSCALE_FACTOR = 0.5
         small_frame = cv2.resize(frame, None, fx=DOWNSCALE_FACTOR, fy=DOWNSCALE_FACTOR)
         
-        faces_small = self.face_detector.detect(small_frame)
+        # [PERFORMANCE] Frame Skipping Logic
+        self._global_frame_index += 1
+        should_process = (self._global_frame_index % config.PROCESS_EVERY_N_FRAMES) == 0
+        
         faces = []
         
+        if should_process:
+            faces_small = self.face_detector.detect(small_frame)
+            self._last_faces_cache = faces_small or []
+        else:
+            # Use cached faces (implicitly assumes face hasn't moved much)
+            faces_small = self._last_faces_cache
+
         # Scale landmarks back up
         if faces_small:
             inv_scale = 1.0 / DOWNSCALE_FACTOR
@@ -351,7 +385,10 @@ class MonitorController:
             if self._current_pitch < -10.0:
                  self._state = DetectionState.HEAD_DOWN
                  self._alert_level = AlertLevel.CRITICAL
-                 self._trigger_alert(score=100)
+                 # [NEW] Use state machine instead of direct trigger
+                 if self._alert_level != self._previous_alert_level:
+                     self._queue_alert_event(self._state, self._alert_level, score=100)
+                     self._previous_alert_level = self._alert_level
                  msg = "PHAT HIEN GUC DAU"
                  frame = self.frame_drawer.draw_alert_overlay(frame, self._alert_level, msg)
                  data['state'] = DetectionState.HEAD_DOWN.value
@@ -367,7 +404,10 @@ class MonitorController:
                  # Nếu fusion xác nhận distracted -> Báo động ngay
                  if self._state == DetectionState.DISTRACTED:
                      self._alert_level = AlertLevel.WARNING # Set warning level
-                     self._trigger_alert(score=20) # Score đủ để trigger TTS priority 2
+                     # [NEW] Use state machine instead of direct trigger
+                     if self._alert_level != self._previous_alert_level:
+                         self._queue_alert_event(self._state, self._alert_level, score=20)
+                         self._previous_alert_level = self._alert_level
                      msg = "MAT TAP TRUNG"
                      frame = self.frame_drawer.draw_alert_overlay(frame, self._alert_level, msg)
                      data['state'] = DetectionState.DISTRACTED.value
@@ -442,7 +482,8 @@ class MonitorController:
             'gaze_distracted': fusion_result.get('gaze_distracted', False),
             'gaze_direction': features.get('gaze_direction', 'center'),
             'gaze_ratio': features.get('gaze_ratio', (0.0, 0.0)),
-            'gaze_duration': fusion_result.get('gaze_duration', 0.0)
+            'gaze_duration': fusion_result.get('gaze_duration', 0.0),
+            'alert_count': getattr(self, 'session_alert_count', 0)
         })
 
         # Thông tin cảnh báo cho UI (Toast/đếm số)
@@ -534,16 +575,25 @@ class MonitorController:
         manual_sunglasses_mode = self._user_settings.get('sunglasses_mode', False) if self._user_settings else False
         
         # [NEW] Auto-detect kính râm bằng variance detector (chỉ khi chưa bật manual mode)
-        auto_sunglasses_detected = False
+        # [OPTIMIZATION] Rate Limit: Chỉ chạy detector mỗi 30 frames (~1s) để tránh lag
+        auto_sunglasses_detected = self._auto_sunglasses_detected # Use cached value by default
+        
         if not manual_sunglasses_mode:
-            left_eye = features.get('left_eye_landmarks', [])
-            right_eye = features.get('right_eye_landmarks', [])
-            
-            if left_eye and right_eye and hasattr(self, '_current_frame'):
-                auto_sunglasses_detected, debug_info = self.sunglasses_detector.detect(
-                    self._current_frame, left_eye, right_eye
-                )
-                self._auto_sunglasses_detected = auto_sunglasses_detected
+            # Chỉ chạy nặng khi đến chu kỳ (ví dụ mỗi 30 frame)
+            if self._frame_count % 30 == 0:
+                left_eye = features.get('left_eye_landmarks', [])
+                right_eye = features.get('right_eye_landmarks', [])
+                
+                if left_eye and right_eye and hasattr(self, '_current_frame'):
+                    is_detected, debug_info = self.sunglasses_detector.detect(
+                        self._current_frame, left_eye, right_eye
+                    )
+                    self._auto_sunglasses_detected = is_detected
+                    auto_sunglasses_detected = is_detected
+        else:
+            # Nếu manual bật thì reset auto state
+            self._auto_sunglasses_detected = False
+            auto_sunglasses_detected = False
         
         # Kết hợp manual và auto detection
         final_sunglasses_mode = manual_sunglasses_mode or auto_sunglasses_detected
@@ -572,6 +622,8 @@ class MonitorController:
         is_gaze_distracted = result.get('gaze_distracted', False)
         
         # Xác định State & Alert Level
+        nod = result.get('nod', False)
+        
         if action == 'alarm':
             # Logic UPGRADE: Alarm -> Critical -> SOS
             if self._alarm_start_time is None:
@@ -586,8 +638,9 @@ class MonitorController:
                 self._alert_level = AlertLevel.ALARM
 
             # Đoán nguyên nhân chính để set state
-            # Prioritize gaze distraction first (most immediate danger)
-            if is_gaze_distracted: self._state = DetectionState.DISTRACTED
+            # Prioritize nod (Explicit sleep sign)
+            if nod: self._state = DetectionState.HEAD_DOWN
+            elif is_gaze_distracted: self._state = DetectionState.DISTRACTED
             elif is_distracted: self._state = DetectionState.DISTRACTED
             elif is_yawning: self._state = DetectionState.YAWNING
             # Prioritize HEAD_DOWN if pitch is visibly down (<-12) during alarm, 
@@ -605,10 +658,14 @@ class MonitorController:
             self._state = DetectionState.NORMAL
             self._alarm_start_time = None  # Reset upgrade timer
         
-        # Xử lý Trigger Alert
-        if self._alert_level != AlertLevel.NONE:
-            self._trigger_alert(score=score)
-        else:
+        # [NEW] Xử lý Alert bằng State Machine (chỉ trigger khi level THAY ĐỔI)
+        if self._alert_level != self._previous_alert_level:
+            # Alert level transition detected - queue event for async processing
+            self._queue_alert_event(self._state, self._alert_level, score)
+            self._previous_alert_level = self._alert_level
+        
+        # Nếu alert level về NONE -> dừng audio
+        if self._alert_level == AlertLevel.NONE:
             self.stop_alert()
             
         return result
@@ -648,34 +705,8 @@ class MonitorController:
         if self._start_time and (curr_time - self._start_time < self._startup_grace_period):
             return
 
-        # TTS Logic (Smart Recommendations)
-        if config.ENABLE_TTS:
-            # Chỉ nói mỗi 8 giây một lần để tránh spam (đã giảm từ 10s xuống 8s cho phản ứng nhanh hơn)
-            if not self._last_tts_time or (curr_time - self._last_tts_time) > 8.0:
-                hint = ""
-                
-                # Priority 1: Critical Head Down / Microsleep
-                if self._state == DetectionState.HEAD_DOWN:
-                    hint = "Nguy hiểm! Đừng cúi đầu, hãy nhìn đường."
-                elif score > 50: 
-                    hint = "Nguy hiểm! Dừng xe ngay lập tức!"
-                
-                # Priority 2: Distraction (Quay đầu) - User reported this was missing
-                elif self._state == DetectionState.DISTRACTED:
-                    hint = "Vui lòng tập trung lái xe."
-                
-                # Priority 3: Yawning
-                elif self._state == DetectionState.YAWNING:
-                    hint = "Bạn đang ngáp nhiều. Hãy nghỉ ngơi."
-                
-                # Priority 4: General Drowsiness (High Score)
-                elif score > 30:
-                    hint = "Bạn đang buồn ngủ. Hãy tỉnh táo lại."
-                
-                if hint:
-                    audio_manager.speak(hint)
-                    self._last_tts_time = curr_time
-                    self._last_tts_time = curr_time
+        # [FIXED] TTS Logic moved to alert processor thread to prevent voice overlap
+        # This method now only queues events, actual audio is handled by background thread
 
         # Âm thanh cảnh báo (Beep/Siren) vẫn chạy song song
         if self._last_alert_time and (curr_time - self._last_alert_time) < 0.5:
@@ -684,12 +715,15 @@ class MonitorController:
         if self._alert_level == AlertLevel.SOS:
             audio_manager.play_siren(loop=True)
             # Gửi Email khẩn cấp (Asynchronous)
-            email_detail = f"Trạng thái: {self._state.value}. EAR: {self._current_ear:.2f}. Score: {score}"
-            email_sender.send_alert_email(
-                "🆘 SOS: NGỦ GẬT QUÁ LÂU (>4s)",
-                email_detail,
-                recipient=self._user_email
-            )
+            # Gửi Email khẩn cấp (Asynchronous) - Chống Spam (Tối đa 1 email/phút)
+            if self._user_email and (curr_time - getattr(self, '_last_email_time', 0) > 60.0):
+                email_detail = f"Trạng thái: {self._state.value}. EAR: {self._current_ear:.2f}. Score: {score}"
+                threading.Thread(target=email_sender.send_alert_email, args=(
+                    "🆘 SOS: NGỦ GẬT QUÁ LÂU (>4s)",
+                    email_detail,
+                    self._user_email
+                ), daemon=True).start()
+                self._last_email_time = curr_time
         elif self._alert_level == AlertLevel.CRITICAL:
             audio_manager.play_siren(loop=True)
         elif self._alert_level == AlertLevel.ALARM:
@@ -717,6 +751,11 @@ class MonitorController:
         else: return # Log other types?
 
         if self._last_alert_type == alert_type: return # Tránh duplicate liên tục
+        
+        # [FIX] Tăng biến đếm Alert ngay khi Log thành công
+        if not hasattr(self, 'session_alert_count'): self.session_alert_count = 0
+        self.session_alert_count += 1
+        
         self._last_alert_type = alert_type
         
         # Prepare data for async logging
@@ -773,7 +812,97 @@ class MonitorController:
             self._frame_count = 0
             self._last_fps_time = time.time()
 
-    # Getters & Setters
+    # =========================================================================
+    # [NEW] ALERT STATE MACHINE (Non-blocking Alert Processing)
+    # =========================================================================
+    
+    def _start_alert_processor(self) -> None:
+        """Start background thread for alert processing"""
+        if self._alert_processor_thread is None or not self._alert_processor_thread.is_alive():
+            self._alert_processing_active = True
+            self._alert_processor_thread = threading.Thread(
+                target=self._alert_processor_loop,
+                daemon=True
+            )
+            self._alert_processor_thread.start()
+    
+    def _queue_alert_event(self, state: DetectionState, level: AlertLevel, score: int = 0) -> None:
+        """Queue alert event for async processing (non-blocking)"""
+        with self._alert_queue_lock:
+            self._alert_event_queue.append({
+                'state': state,
+                'level': level,
+                'score': score,
+                'timestamp': time.time()
+            })
+    
+    def _alert_processor_loop(self) -> None:
+        """Background thread: Process queued alert events"""
+        last_callback_time = 0.0
+        
+        while self._alert_processing_active:
+            try:
+                with self._alert_queue_lock:
+                    if self._alert_event_queue:
+                        alert_event = self._alert_event_queue.popleft()
+                    else:
+                        alert_event = None
+                
+                if alert_event:
+                    state = alert_event['state']
+                    level = alert_event['level']
+                    score = alert_event['score']
+                    
+                    # Play audio based on level (non-blocking, already threaded)
+                    if level == AlertLevel.SOS:
+                        audio_manager.play_siren(loop=True)
+                    elif level == AlertLevel.CRITICAL:
+                        audio_manager.play_siren(loop=True)
+                    elif level == AlertLevel.ALARM:
+                        audio_manager.play_alarm()
+                    elif level == AlertLevel.WARNING:
+                        audio_manager.play_beep()
+                    
+                    # TTS Voice Alert (async)
+                    if config.ENABLE_TTS:
+                        hint = ""
+                        if state == DetectionState.HEAD_DOWN:
+                            hint = "Nguy hiểm! Đừng cúi đầu, hãy nhìn đường."
+                        elif score > 50:
+                            hint = "Nguy hiểm! Dừng xe ngay lập tức!"
+                        elif state == DetectionState.DISTRACTED:
+                            hint = "Vui lòng tập trung lái xe."
+                        elif state == DetectionState.YAWNING:
+                            hint = "Bạn đang ngáp nhiều. Hãy nghỉ ngơi."
+                        elif score > 30:
+                            hint = "Bạn đang buồn ngủ. Hãy tỉnh táo lại."
+                        
+                        if hint:
+                            threading.Thread(
+                                target=audio_manager.speak,
+                                args=(hint,),
+                                daemon=True
+                            ).start()
+                    
+                    # Async logging (non-blocking)
+                    self._log_alert()
+                    
+                    # UI callback (throttled mỗi 2 giây)
+                    curr_time = time.time()
+                    if curr_time - last_callback_time > 2.0:
+                        if self._on_alert_callback:
+                            self._on_alert_callback(state, level)
+                        last_callback_time = curr_time
+                
+                # Sleep to prevent busy-waiting
+                time.sleep(0.1)
+                
+            except Exception as e:
+                logger.error(f"Alert processor error: {e}")
+                time.sleep(0.5)
+
+    # =========================================================================
+
     def set_on_frame_callback(self, cb): self._on_frame_callback = cb
     def set_on_alert_callback(self, cb): self._on_alert_callback = cb
     def set_on_state_change_callback(self, cb): self._on_state_change_callback = cb
@@ -786,6 +915,8 @@ class MonitorController:
     def cleanup(self):
         self.stop_monitoring()
         self.stop_camera()
+        # [PERSISTENCE] Không reset count tại đây để giữ số liệu cho Session
+        pass
         logger.info("Monitor controller cleaned up")
 
 

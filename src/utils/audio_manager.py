@@ -60,6 +60,12 @@ class AudioManager:
         self._current_thread: Optional[threading.Thread] = None
         self.use_online_tts = False # Default to offline
         
+        # [NEW] TTS Queue to prevent voice overlap
+        from collections import deque
+        self._tts_queue = deque()
+        self._tts_queue_lock = threading.Lock()
+        self._tts_worker_active = False
+        
         # TTS Engine
         try:
             self.tts_engine = pyttsx3.init()
@@ -164,7 +170,35 @@ class AudioManager:
         self.play_alert(3, loop=loop)
     
     def speak(self, text: str) -> None:
-        """Speak text using TTS engine (Async) - supports Offline & Online"""
+        """Speak text using TTS engine (Queue-based to prevent overlap) - supports Offline & Online"""
+        if not self._enabled or not self.tts_available:
+            return
+        
+        # [NEW] Queue the text instead of spawning multiple threads
+        with self._tts_queue_lock:
+            self._tts_queue.append(text)
+        
+        # Start worker if not already running
+        if not self._tts_worker_active:
+            self._tts_worker_active = True
+            threading.Thread(target=self._tts_worker, daemon=True).start()
+    
+    def _tts_worker(self) -> None:
+        """Background worker to process TTS queue sequentially"""
+        while True:
+            text = None
+            with self._tts_queue_lock:
+                if self._tts_queue:
+                    text = self._tts_queue.popleft()
+                else:
+                    self._tts_worker_active = False
+                    break
+            
+            if text:
+                self._speak_internal(text)
+    
+    def _speak_internal(self, text: str) -> None:
+        """Internal method to speak text (called by worker thread)"""
         if not self._enabled or not self.tts_available:
             return
             
@@ -213,9 +247,9 @@ class AudioManager:
 
         # Select Strategy
         if self.use_online_tts and G_TTS_AVAILABLE:
-             threading.Thread(target=_speak_online, daemon=True).start()
+             _speak_online()
         else:
-             threading.Thread(target=_speak_offline, daemon=True).start()
+             _speak_offline()
 
     def stop(self) -> None:
         """Stop all sounds"""

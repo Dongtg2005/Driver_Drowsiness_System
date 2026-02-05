@@ -277,9 +277,12 @@ class FaceMeshDetector:
 # Singleton instance
 _detector_instance: Optional[FaceMeshDetector] = None
 
-def get_face_detector() -> FaceMeshDetector:
+def get_face_mesh() -> FaceMeshDetector:
     """Get singleton Face Mesh detector"""
     global _detector_instance
     if _detector_instance is None:
         _detector_instance = FaceMeshDetector()
     return _detector_instance
+
+# Alias for backward compatibility
+get_face_detector = get_face_mesh

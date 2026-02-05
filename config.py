@@ -74,7 +74,7 @@ class Config:
     EAR_THRESHOLD = 0.25 # Sử dụng ngưỡng an toàn hơn
     
     # Feature Flags
-    ENABLE_NIGHT_MODE = True
+    ENABLE_NIGHT_MODE = False # [PERFORMANCE] Tắt mặc định để tăng FPS. Bật lại nếu quá tối.
     ENABLE_TTS = True
 
     # Hiển thị cảnh báo trực tiếp lên khung hình camera (overlay lớn)
@@ -100,6 +100,11 @@ class Config:
     CAMERA_WIDTH = 640
     CAMERA_HEIGHT = 480
     TARGET_FPS = 30
+    
+    # [PERFORMANCE] Optimizations
+    # Chỉ chạy AI Detection mỗi N frames (2 = 15 lần/giây, 3 = 10 lần/giây)
+    # Giúp tăng FPS đáng kể trên máy cấu hình yếu.
+    PROCESS_EVERY_N_FRAMES = 2
 
 # Global Config Instance
 config = Config()

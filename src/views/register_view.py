@@ -43,13 +43,17 @@ class RegisterView(ctk.CTkFrame):
     
     def _create_widgets(self):
         """Create registration form widgets"""
+        # Main scrollable container to prevent cutoff on small screens
+        scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        scroll_frame.pack(fill="both", expand=True)
+
         # Center container
-        center_frame = StyledFrame(self, style="transparent")
-        center_frame.place(relx=0.5, rely=0.5, anchor="center")
+        center_frame = StyledFrame(scroll_frame, style="transparent")
+        center_frame.pack(anchor="center", pady=40)
         
         # Title
         title_frame = StyledFrame(center_frame, style="transparent")
-        title_frame.pack(pady=(0, 20))
+        title_frame.pack(pady=(0, 10)) # Reduced padding
         
         StyledLabel(
             title_frame,
@@ -65,7 +69,7 @@ class RegisterView(ctk.CTkFrame):
         
         # Registration form card
         form_card = StyledFrame(center_frame, style="card")
-        form_card.pack(padx=40, pady=20, ipadx=30, ipady=30)
+        form_card.pack(padx=20, pady=10, ipadx=30, ipady=20) # Compact padding
         
         # Username
         self._create_field(form_card, "👤 Tên đăng nhập *", "username")
@@ -128,7 +132,7 @@ class RegisterView(ctk.CTkFrame):
     def _create_field(self, parent, label: str, field_name: str, show: str = None):
         """Create a form field"""
         frame = StyledFrame(parent, style="transparent")
-        frame.pack(fill="x", pady=8)
+        frame.pack(fill="x", pady=4)
         
         StyledLabel(
             frame,
